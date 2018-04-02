@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "map_data.hpp"
+#include "sensor_fusion_data.hpp"
 
 
 class Path
@@ -32,9 +33,13 @@ public:
 class PathPlanner
 {
 public:
-    PathPlanner(MapData mapData);
+    explicit PathPlanner(MapData mapData);
 
     void UpdateLocalisation(State state);
+
+    void UpdateHistory(Path previousPath);
+
+    void UpdateSensorFusion(SensorFusionData);
 
     Path PlanPath();
 
@@ -42,6 +47,8 @@ public:
 private:
     MapData mapData;
     State state;
+    SensorFusionData sensorFusionData;
+    Path previousPath;
 };
 
 

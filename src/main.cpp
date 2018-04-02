@@ -4,7 +4,6 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "json.hpp"
 #include "path_planner.hpp"
-#include "map_data.hpp"
 
 using namespace std;
 
@@ -97,26 +96,43 @@ int main()
                         // j[1] is the data JSON object
 
                         // Main car's localization Data
-                        State state{
-                            j[1]["x"],
-                            j[1]["y"],
-                            j[1]["s"],
-                            j[1]["d"],
-                            j[1]["yaw"],
-                            j[1]["speed"]
-                        };
+                        {
+                            State state{
+                                j[1]["x"],
+                                j[1]["y"],
+                                j[1]["s"],
+                                j[1]["d"],
+                                j[1]["yaw"],
+                                j[1]["speed"]
+                            };
 
-                        planner.UpdateLocalisation(state);
+                            planner.UpdateLocalisation(state);
+                        }
 
                         // Previous path data given to the Planner
-                        auto previous_path_x = j[1]["previous_path_x"];
-                        auto previous_path_y = j[1]["previous_path_y"];
+                        planner.UpdateHistory({
+                                                  j[1]["previous_path_x"],
+                                                  j[1]["previous_path_y"]
+                                              });
                         // Previous path's end s and d values
                         double end_path_s = j[1]["end_path_s"];
                         double end_path_d = j[1]["end_path_d"];
 
                         // Sensor Fusion Data, a list of all other cars on the same side of the road.
                         auto sensor_fusion = j[1]["sensor_fusion"];
+                        SensorFusionData sensorFusionData{};
+
+                        for (auto&& car : sensor_fusion)
+                        {
+                            sensorFusionData.id.push_back(car[0]);
+                            sensorFusionData.x.push_back(car[1]);
+                            sensorFusionData.y.push_back(car[2]);
+                            sensorFusionData.vx.push_back(car[3]);
+                            sensorFusionData.vy.push_back(car[4]);
+                            sensorFusionData.s.push_back(car[5]);
+                            sensorFusionData.d.push_back(car[6]);
+                        }
+                        planner.UpdateSensorFusion(move(sensorFusionData));
 
                         json msgJson;
 
