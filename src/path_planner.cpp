@@ -7,8 +7,10 @@
 
 #include "path_planner.hpp"
 #include "utilities.hpp"
+#include "jerk_minimal_trajectory.hpp"
 
-PathPlanner::PathPlanner(MapData mapData) :
+PathPlanner::PathPlanner(double dt, MapData mapData) :
+    dt(dt),
     mapData{std::move(mapData)}
 {}
 
@@ -16,15 +18,40 @@ Path PathPlanner::PlanPath()
 {
     Path path{};
 
-    double d = 6;
-    double dist_inc = 0.5;
-    for (int i = 0; i < 50; i++)
+    double speed = 0.8;  // m s^-1
+    double t_final = 5;
+    double s_final = state.s + speed * t_final;
+    double d_final = 6;
+
+    auto xy = getXY(s_final, d_final, this->mapData.waypoints_s,
+                    this->mapData.waypoints_x, this->mapData.waypoints_y);
+
+    auto last_waypoint_i = ClosestWaypoint(xy[0], xy[1], mapData.waypoints_x,
+                                           mapData.waypoints_y);
+
+    auto vx_initial = state.speed * cos(state.yaw);
+    auto vy_initial = state.speed * sin(state.yaw);
+
+    auto vx_final = -speed * mapData.waypoints_dy[last_waypoint_i];
+    auto vy_final = speed * mapData.waypoints_dx[last_waypoint_i];
+
+    auto x_curve = JerkMinimalTrajectory({state.x, vx_initial, 0},
+                                         {xy[0], vx_final, 0},
+                                         t_final);
+
+    auto y_curve = JerkMinimalTrajectory({state.y, vy_initial, 0},
+                                         {xy[1], vy_final, 0},
+                                         t_final);
+
+    auto n_points = lround(t_final / dt);
+    for (int i = 0; i < n_points; i++)
     {
-        double s = state.s + (i + 1) * dist_inc;
-        auto xy = getXY(s, d, this->mapData.waypoints_s,
-                        this->mapData.waypoints_x, this->mapData.waypoints_y);
-        path.x.push_back(xy[0]);
-        path.y.push_back(xy[1]);
+        double t = i * dt;
+        double x = x_curve.Evaluate(t);
+        double y = y_curve.Evaluate(t);
+
+        path.x.push_back(x);
+        path.y.push_back(y);
     }
     return path;
 }

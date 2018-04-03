@@ -4,6 +4,7 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "json.hpp"
 #include "path_planner.hpp"
+#include "utilities.hpp"
 
 using namespace std;
 
@@ -67,6 +68,7 @@ int main()
     }
 
     PathPlanner planner{
+        0.02,
         move(mapData)
     };
 
@@ -102,7 +104,7 @@ int main()
                                 j[1]["y"],
                                 j[1]["s"],
                                 j[1]["d"],
-                                j[1]["yaw"],
+                                deg2rad(j[1]["yaw"]),
                                 j[1]["speed"]
                             };
 

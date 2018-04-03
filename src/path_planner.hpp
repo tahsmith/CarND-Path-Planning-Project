@@ -33,7 +33,7 @@ public:
 class PathPlanner
 {
 public:
-    explicit PathPlanner(MapData mapData);
+    explicit PathPlanner(double dt, MapData mapData);
 
     void UpdateLocalisation(State state);
 
@@ -45,6 +45,7 @@ public:
 
 
 private:
+    double dt;
     MapData mapData;
     State state;
     SensorFusionData sensorFusionData;
