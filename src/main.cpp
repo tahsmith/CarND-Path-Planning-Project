@@ -142,7 +142,7 @@ int main()
                         msgJson["next_y"] = move(path.y);
 
                         auto msg = "42[\"control\"," + msgJson.dump() + "]";
-
+//                        std::cout << msg << "\n";
                         //this_thread::sleep_for(chrono::milliseconds(1000));
                         ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
                     }
