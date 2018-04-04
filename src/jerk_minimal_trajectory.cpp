@@ -4,8 +4,6 @@
 
 #include "jerk_minimal_trajectory.hpp"
 
-#include <utility>
-
 #include "Eigen-3.3/Eigen/Dense"
 
 using namespace std;
@@ -47,4 +45,70 @@ JerkMinimalTrajectory(std::vector<double> initial, std::vector<double> final,
     return {initial[0], initial[1], 0.5 * initial[2], alpha[0], alpha[1],
             alpha[2]};
 
+}
+
+#include "catch.hpp"
+
+TEST_CASE("Polynomial")
+{
+    SECTION("x^2 - 2x + 1")
+    {
+        Polynomial polynomial{1, -2, 1};
+
+        REQUIRE(polynomial.Evaluate(0) == 1.0);
+        REQUIRE(polynomial.Evaluate(0.5) == 0.25);
+        REQUIRE(polynomial.Evaluate(1) == 0.0);
+        REQUIRE(polynomial.Evaluate(0.5) == 0.25);
+        REQUIRE(polynomial.Evaluate(2) == 1.0);
+    }
+
+    SECTION("-x^2 + 2x - 1")
+    {
+        Polynomial polynomial{-1, 2, -1};
+
+        REQUIRE(polynomial.Evaluate(0) == -1.0);
+        REQUIRE(polynomial.Evaluate(0.5) == -0.25);
+        REQUIRE(polynomial.Evaluate(1) == 0.0);
+        REQUIRE(polynomial.Evaluate(0.5) == -0.25);
+        REQUIRE(polynomial.Evaluate(2) == -1.0);
+    }
+}
+
+TEST_CASE("JerkMinimalTrajectory")
+{
+    SECTION("Trivial")
+    {
+        auto poly = JerkMinimalTrajectory({0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
+                                          1.0);
+        REQUIRE(poly.Evaluate(0.0) == 0.0);
+        REQUIRE(poly.Evaluate(0.5) == 0.0);
+        REQUIRE(poly.Evaluate(1.0) == 0.0);
+    }
+
+    SECTION("1 -> 1")
+    {
+        auto poly = JerkMinimalTrajectory({1.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
+                                          1.0);
+        REQUIRE(poly.Evaluate(0.0) == Approx(1.0));
+        REQUIRE(poly.Evaluate(0.5) == Approx(1.0));
+        REQUIRE(poly.Evaluate(1.0) == Approx(1.0));
+    }
+
+    SECTION("0 -> 1")
+    {
+        auto poly = JerkMinimalTrajectory({0.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
+                                          1.0);
+        REQUIRE(poly.Evaluate(0.0) == Approx(0.0));
+        REQUIRE(poly.Evaluate(0.5) == Approx(0.5));
+        REQUIRE(poly.Evaluate(1.0) == Approx(1.0));
+    }
+
+    SECTION("1 -> 0")
+    {
+        auto poly = JerkMinimalTrajectory({1.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
+                                          1.0);
+        REQUIRE(poly.Evaluate(0.0) == 1.0);
+        REQUIRE(poly.Evaluate(0.5) == Approx(0.5));
+        REQUIRE(poly.Evaluate(1.0) <= 1e-6);
+    }
 }

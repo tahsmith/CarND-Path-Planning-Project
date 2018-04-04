@@ -18,8 +18,8 @@ Path PathPlanner::PlanPath()
 {
     Path path{};
 
-    double speed = 0.8;  // m s^-1
-    double t_final = 5;
+    double speed = 16;  // m s^-1
+    double t_final = 0.5;
     double s_final = state.s + speed * t_final;
     double d_final = 6;
 
@@ -29,8 +29,27 @@ Path PathPlanner::PlanPath()
     auto last_waypoint_i = ClosestWaypoint(xy[0], xy[1], mapData.waypoints_x,
                                            mapData.waypoints_y);
 
-    auto vx_initial = state.speed * cos(state.yaw);
-    auto vy_initial = state.speed * sin(state.yaw);
+    double vx_initial;
+    double vy_initial;
+    if (!previousPath.x.empty())
+    {
+        vx_initial = (state.x - previousPath.x.back()) / dt;
+        vx_initial = fmin(speed, vx_initial);
+    }
+    else
+    {
+        vx_initial = 0;
+    }
+    if (!previousPath.y.empty())
+    {
+        vy_initial = (state.y - previousPath.y.back()) / dt;
+        vy_initial = fmin(speed, vy_initial);
+
+    }
+    else
+    {
+        vy_initial = 0;
+    }
 
     auto vx_final = -speed * mapData.waypoints_dy[last_waypoint_i];
     auto vy_final = speed * mapData.waypoints_dx[last_waypoint_i];
@@ -43,12 +62,25 @@ Path PathPlanner::PlanPath()
                                          {xy[1], vy_final, 0},
                                          t_final);
 
+    auto first_waypoint_i = ClosestWaypoint(state.x, state.y,
+                                            mapData.waypoints_x,
+                                            mapData.waypoints_y);
+    double vx = -speed * mapData.waypoints_dy[last_waypoint_i];
+    double vy = speed * mapData.waypoints_dx[last_waypoint_i];
     auto n_points = lround(t_final / dt);
-    for (int i = 0; i < n_points; i++)
+
+    for (auto i = std::min(previousPath.x.size(), 2UL); i > 0; i--)
+    {
+        path.x.push_back(previousPath.x[previousPath.x.size() - i]);
+        path.y.push_back(previousPath.y[previousPath.x.size() - i]);
+    }
+    for (int i = 1; i < n_points; i++)
     {
         double t = i * dt;
-        double x = x_curve.Evaluate(t);
-        double y = y_curve.Evaluate(t);
+//        double x = x_curve.Evaluate(t);
+//        double y = y_curve.Evaluate(t);
+        double x = state.x + t * vx;
+        double y = state.y + t * vy;
 
         path.x.push_back(x);
         path.y.push_back(y);
