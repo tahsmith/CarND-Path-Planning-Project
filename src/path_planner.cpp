@@ -5,6 +5,8 @@
 #include <utility>
 #include <vector>
 #include <cmath>
+#include <cassert>
+#include <iostream>
 
 #include "path_planner.hpp"
 #include "utilities.hpp"
@@ -12,6 +14,7 @@
 
 using std::vector;
 using std::move;
+using std::numeric_limits;
 
 const size_t n_states = 4;
 const char* states[n_states] = {
@@ -37,10 +40,13 @@ vector<uint8_t> SuccessorStates(size_t state) {
 
 PathPlanner::PathPlanner(double dt, MapData mapData) :
     dt(dt),
-    mapData{std::move(mapData)}
+    mapData{std::move(mapData)},
+    d_target{6.0},
+    speed_target{speed_limit},
+    planner_state{0}
 {}
 
-Path PathPlanner::PlanPath() const
+Path PathPlanner::PlanPath()
 {
     auto candidate_states = SuccessorStates(planner_state);
     std::vector<double> cost_list(candidate_states.size(), std::numeric_limits<float>::infinity());
@@ -55,17 +61,19 @@ Path PathPlanner::PlanPath() const
     }
 
     double minimum = cost_list[0];
-    double minimum_i = 0;
+    size_t minimum_i = 0;
     for(int i = 1; i < cost_list.size(); ++i) {
         if(cost_list[i] < minimum) {
             minimum = cost_list[i];
             minimum_i = i;
         }
     }
+    planner_state = candidate_states[minimum_i];
     return trajectory_list[minimum_i];
 }
 
-Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final) const
+Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
+                                     double speed_final) const
 {
     double x_initial;
     if (!previousPath.x.empty())
@@ -125,8 +133,8 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
                                            mapData.waypoints_x,
                                            mapData.waypoints_y);
 
-    auto vx_final = -speed_limit * mapData.waypoints_dy[last_waypoint_i];
-    auto vy_final = speed_limit * mapData.waypoints_dx[last_waypoint_i];
+    auto vx_final = -speed_final * mapData.waypoints_dy[last_waypoint_i];
+    auto vy_final = speed_final * mapData.waypoints_dx[last_waypoint_i];
 
     auto x_curve = JerkMinimalTrajectory({x_initial, vx_initial, ax_initial},
                                    {x_final, vx_final, ay_initial},
@@ -161,7 +169,7 @@ void PathPlanner::UpdateLocalisation(State state)
     this->vehicle_state = state;
 }
 
-void PathPlanner::UpdateSensorFusion(SensorFusionData)
+void PathPlanner::UpdateSensorFusion(SensorFusionData sensorFusionData)
 {
     this->sensorFusionData = std::move(sensorFusionData);
 }
@@ -173,11 +181,71 @@ void PathPlanner::UpdateHistory(Path previousPath)
 
 Path PathPlanner::GenerateTrajectoryForState(uint8_t state) const
 {
-    return Path();
+    double follow_distance = 30;
+    double t_final = 1.0;
+    double s_final;
+    double d_final;
+    double speed;
+    if (state == 0)  // FOLLOW
+    {
+        auto car_in_front = FindCarToFollow();
+        if (car_in_front != sensorFusionData.id.size())
+        {
+            if (abs(sensorFusionData.s[car_in_front] - vehicle_state.s) <
+                follow_distance) {
+                speed = sqrt(sensorFusionData.vx[car_in_front] * sensorFusionData.vx[car_in_front]
+                             + sensorFusionData.vy[car_in_front] * sensorFusionData.vy[car_in_front]);
+            }
+            else
+            {
+                speed = speed_limit;
+            }
+        }
+        else
+        {
+            speed = speed_limit;
+        }
+        s_final = vehicle_state.s + speed * t_final;
+        d_final = d_target;
+    }
+    else if(state == 1) // CHANGE_LEFT
+    {
+        speed = speed_limit;
+        s_final = vehicle_state.s + speed_limit * t_final;
+        d_final = d_target - 3;
+
+    }
+    else  // CHANGE_RIGHT
+    {
+        assert(state == 2);
+        speed = speed_limit;
+        s_final = vehicle_state.s + speed_limit * t_final;
+        d_final = d_target + 3;
+    }
+    return GenerateTrajectory(t_final, s_final, d_final, speed);
 }
 
 double PathPlanner::CostForTrajectory(uint8_t state, const Path&) const
 {
     return 0;
+}
+
+size_t PathPlanner::FindCarToFollow() const
+{
+    auto closest = sensorFusionData.id.size();
+    double closest_s = numeric_limits<double>::infinity();
+    for (size_t i = 0; i < sensorFusionData.id.size(); ++i)
+    {
+        if (abs(sensorFusionData.d[i] - vehicle_state.d) < 3.0) {
+            if (sensorFusionData.s[i] > vehicle_state.s) {
+                if (sensorFusionData.s[i] < closest_s) {
+                    closest = i;
+                    closest_s = sensorFusionData.s[i];
+                }
+            }
+        }
+    }
+
+    return closest;
 }
 
