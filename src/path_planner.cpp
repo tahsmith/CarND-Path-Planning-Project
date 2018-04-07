@@ -10,7 +10,6 @@
 
 #include "path_planner.hpp"
 #include "utilities.hpp"
-#include "jerk_minimal_trajectory.hpp"
 
 using std::vector;
 using std::move;
@@ -68,7 +67,19 @@ Path PathPlanner::PlanPath()
             minimum_i = i;
         }
     }
-    planner_state = candidate_states[minimum_i];
+    auto next_state = candidate_states[minimum_i];
+    if (planner_state == 0)
+    {
+        if (next_state == 1)
+        {
+            d_target -= 2;
+        }
+        else if (next_state == 2)
+        {
+            d_target += 2;
+        }
+    }
+    planner_state = next_state;
     return trajectory_list[minimum_i];
 }
 
@@ -164,7 +175,7 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
     return path;
 }
 
-void PathPlanner::UpdateLocalisation(State state)
+void PathPlanner::UpdateLocalisation(VehicleState state)
 {
     this->vehicle_state = state;
 }
@@ -212,7 +223,7 @@ Path PathPlanner::GenerateTrajectoryForState(uint8_t state) const
     {
         speed = speed_limit;
         s_final = vehicle_state.s + speed_limit * t_final;
-        d_final = d_target - 3;
+        d_final = d_target - 2;
 
     }
     else  // CHANGE_RIGHT
@@ -220,7 +231,7 @@ Path PathPlanner::GenerateTrajectoryForState(uint8_t state) const
         assert(state == 2);
         speed = speed_limit;
         s_final = vehicle_state.s + speed_limit * t_final;
-        d_final = d_target + 3;
+        d_final = d_target + 2;
     }
     return GenerateTrajectory(t_final, s_final, d_final, speed);
 }
@@ -228,16 +239,13 @@ Path PathPlanner::GenerateTrajectoryForState(uint8_t state) const
 double PathPlanner::CostForTrajectory(uint8_t state, const Path& path) const
 {
     double cost = 0;
-    for (int i = 1; i < path.x.size(); ++i)
-    {
-        double dx = path.x[i] - path.x[i - 1];
-        double dy = path.y[i] - path.y[i - 1];
-        cost += sqrt(dx * dx + dy * dy) / dt;
-    }
-    cost /= path.x.size();
-    cost = exp(-cost);
-    double change_cost = 0.0000000004;
-    if (state == 0) {
+    auto n_points = path.x.size();
+    double dx = path.x[n_points - 1] - path.x[n_points - 2];
+    double dy = path.y[n_points - 1] - path.y[n_points - 2];
+    cost = 1 - sqrt(dx * dx + dy * dy) / dt / speed_limit;
+
+    double change_cost = 0.01;
+    if (state == planner_state) {
         change_cost = 0;
     }
     cost += change_cost;
@@ -250,7 +258,7 @@ size_t PathPlanner::FindCarToFollow() const
     double closest_s = numeric_limits<double>::infinity();
     for (size_t i = 0; i < sensorFusionData.id.size(); ++i)
     {
-        if (abs(sensorFusionData.d[i] - vehicle_state.d) < 3.0) {
+        if (abs(sensorFusionData.d[i] - d_target) < 3.0) {
             if (sensorFusionData.s[i] > vehicle_state.s) {
                 if (sensorFusionData.s[i] < closest_s) {
                     closest = i;
