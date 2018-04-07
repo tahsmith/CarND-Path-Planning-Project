@@ -99,7 +99,7 @@ int main()
 
                         // Main car's localization Data
                         {
-                            State state{
+                            VehicleState state{
                                 j[1]["x"],
                                 j[1]["y"],
                                 j[1]["s"],

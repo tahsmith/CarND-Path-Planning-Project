@@ -20,7 +20,7 @@ public:
 };
 
 
-class State
+class VehicleState
 {
 public:
     double x;
@@ -36,7 +36,7 @@ class PathPlanner
 public:
     PathPlanner(double dt, MapData mapData);
 
-    void UpdateLocalisation(State state);
+    void UpdateLocalisation(VehicleState state);
 
     void UpdateHistory(Path previousPath);
 
@@ -49,7 +49,7 @@ private:
     const double speed_limit = 21.90496;  // m s^-1 ~= 49 miles / hr
     const double dt;
     const MapData mapData;
-    State vehicle_state;
+    VehicleState vehicle_state;
     uint8_t planner_state;
     double speed_target;
     double d_target;
