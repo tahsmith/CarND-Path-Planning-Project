@@ -225,9 +225,23 @@ Path PathPlanner::GenerateTrajectoryForState(uint8_t state) const
     return GenerateTrajectory(t_final, s_final, d_final, speed);
 }
 
-double PathPlanner::CostForTrajectory(uint8_t state, const Path&) const
+double PathPlanner::CostForTrajectory(uint8_t state, const Path& path) const
 {
-    return 0;
+    double cost = 0;
+    for (int i = 1; i < path.x.size(); ++i)
+    {
+        double dx = path.x[i] - path.x[i - 1];
+        double dy = path.y[i] - path.y[i - 1];
+        cost += sqrt(dx * dx + dy * dy) / dt;
+    }
+    cost /= path.x.size();
+    cost = exp(-cost);
+    double change_cost = 0.0000000004;
+    if (state == 0) {
+        change_cost = 0;
+    }
+    cost += change_cost;
+    return cost;
 }
 
 size_t PathPlanner::FindCarToFollow() const
