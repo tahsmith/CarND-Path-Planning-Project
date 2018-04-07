@@ -49,12 +49,16 @@ private:
     const double speed_limit = 21.90496;  // m s^-1 ~= 49 miles / hr
     const double dt;
     const MapData mapData;
-    State state;
+    State vehicle_state;
+    uint8_t planner_state;
     SensorFusionData sensorFusionData;
     Path previousPath;
 
-    void GenerateTrajectory(double t_final, double s_final, double d_final,
-                            Polynomial& x_curve, Polynomial& y_curve) const;
+    Path
+    GenerateTrajectory(double t_final, double s_final, double d_final) const;
+
+    Path GenerateTrajectoryForState(uint8_t state) const;
+    double CostForTrajectory(uint8_t state, const Path&) const;
 };
 
 
