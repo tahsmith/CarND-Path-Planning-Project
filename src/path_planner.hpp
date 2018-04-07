@@ -42,7 +42,7 @@ public:
 
     void UpdateSensorFusion(SensorFusionData);
 
-    Path PlanPath() const;
+    Path PlanPath();
 
 
 private:
@@ -51,14 +51,18 @@ private:
     const MapData mapData;
     State vehicle_state;
     uint8_t planner_state;
+    double speed_target;
+    double d_target;
     SensorFusionData sensorFusionData;
     Path previousPath;
 
     Path
-    GenerateTrajectory(double t_final, double s_final, double d_final) const;
+    GenerateTrajectory(double t_final, double s_final, double d_final,
+                           double speed_final) const;
 
     Path GenerateTrajectoryForState(uint8_t state) const;
     double CostForTrajectory(uint8_t state, const Path&) const;
+    size_t FindCarToFollow() const;
 };
 
 
