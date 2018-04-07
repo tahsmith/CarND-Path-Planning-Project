@@ -14,12 +14,44 @@ PathPlanner::PathPlanner(double dt, MapData mapData) :
     mapData{std::move(mapData)}
 {}
 
-Path PathPlanner::PlanPath()
+Path PathPlanner::PlanPath() const
 {
     Path path{};
 
-    double speed_limit = 21.90496;  // m s^-1 ~= 49 miles / hr
+    double t_final = 1.0;
+    double s_final = state.s + speed_limit * t_final;
+    double d_final = 06;
 
+    Polynomial x_curve{};
+    Polynomial y_curve{};
+    GenerateTrajectory(t_final, s_final,
+                       d_final, x_curve,
+                       y_curve);
+
+    auto n_points = lround(floor(t_final / dt));
+
+    auto overlap = std::min(previousPath.x.size(), 1UL);
+    for (auto i = 0; i < overlap; ++i)
+    {
+        path.x.push_back(previousPath.x[i]);
+        path.y.push_back(previousPath.y[i]);
+    }
+    for (int i = overlap; i < n_points; i++)
+    {
+        double t = i * dt;
+        double x = x_curve.Evaluate(t);
+        double y = y_curve.Evaluate(t);
+
+        path.x.push_back(x);
+        path.y.push_back(y);
+    }
+    return path;
+}
+
+void PathPlanner::GenerateTrajectory(double t_final,
+                                     double s_final, double d_final,
+                                     Polynomial& x_curve, Polynomial& y_curve) const
+{
     double x_initial;
     if (!previousPath.x.empty())
     {
@@ -68,13 +100,8 @@ Path PathPlanner::PlanPath()
         vy_initial = 0;
         ay_initial = 0;
     }
-
-    double t_final = 1.0;
-    double s_final = state.s + speed_limit * t_final;
-    double d_final = 06;
-
-    auto xy_final = getXY(s_final, d_final, this->mapData.waypoints_s,
-                          this->mapData.waypoints_x, this->mapData.waypoints_y);
+    auto xy_final = getXY(s_final, d_final, mapData.waypoints_s,
+                          mapData.waypoints_x, mapData.waypoints_y);
 
     double x_final = xy_final[0];
     double y_final = xy_final[1];
@@ -86,32 +113,12 @@ Path PathPlanner::PlanPath()
     auto vx_final = -speed_limit * mapData.waypoints_dy[last_waypoint_i];
     auto vy_final = speed_limit * mapData.waypoints_dx[last_waypoint_i];
 
-    auto x_curve = JerkMinimalTrajectory({x_initial, vx_initial, ax_initial},
-                                         {x_final, vx_final, ay_initial},
-                                         t_final);
-
-    auto y_curve = JerkMinimalTrajectory({y_initial, vy_initial, 0},
-                                         {y_final, vy_final, 0},
-                                         t_final);
-
-    auto n_points = lround(floor(t_final / dt));
-
-    auto overlap = std::min(previousPath.x.size(), 1UL);
-    for (auto i = 0; i < overlap; ++i)
-    {
-        path.x.push_back(previousPath.x[i]);
-        path.y.push_back(previousPath.y[i]);
-    }
-    for (int i = overlap; i < n_points; i++)
-    {
-        double t = i * dt;
-        double x = x_curve.Evaluate(t);
-        double y = y_curve.Evaluate(t);
-
-        path.x.push_back(x);
-        path.y.push_back(y);
-    }
-    return path;
+    x_curve= JerkMinimalTrajectory({x_initial, vx_initial, ax_initial},
+                                   {x_final, vx_final, ay_initial},
+                                   t_final);
+    y_curve= JerkMinimalTrajectory({y_initial, vy_initial, 0},
+                                   {y_final, vy_final, 0},
+                                   t_final);
 }
 
 void PathPlanner::UpdateLocalisation(State state)
