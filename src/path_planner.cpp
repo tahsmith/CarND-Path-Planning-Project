@@ -157,13 +157,7 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
 
     Path path{};
     auto n_points = lround(floor(t_final / dt));
-    auto overlap = std::min(previousPath.x.size(), 1UL);
-    for (auto i = 0; i < overlap; ++i)
-    {
-        path.x.push_back(previousPath.x[i]);
-        path.y.push_back(previousPath.y[i]);
-    }
-    for (int i = overlap; i < n_points; i++)
+    for (int i = 0; i < n_points; i++)
     {
         double t = i * dt;
         double x = x_curve.Evaluate(t);
