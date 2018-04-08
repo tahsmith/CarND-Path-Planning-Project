@@ -78,8 +78,14 @@ private:
 
     double SafeSpeedForLane(size_t lane) const;
     double CarPotential(double x, double y,
+                        double vx, double vy,
                         double car_x, double car_y,
                         double car_vx, double car_vy) const;
+
+    double SoftCarPotential(double x, double y,
+                            double vx, double vy,
+                            double car_x, double car_y,
+                            double car_vx, double car_vy) const;
     double CarAvoidanceCostPerCar(const Path& path, size_t i) const;
     double CarAvoidanceCost(const Path& path) const;
 
