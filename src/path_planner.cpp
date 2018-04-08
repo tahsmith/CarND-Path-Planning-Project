@@ -157,35 +157,19 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
         vy_initial = 0;
         ay_initial = 0;
     }
-    Polynomial x_curve{};
-    Polynomial y_curve{};
-    GenerateTrajectory(t_final, s_final, d_final, speed_final, x_initial,
+    auto path = GenerateTrajectory(t_final, s_final, d_final, speed_final, x_initial,
                        y_initial, vx_initial, vy_initial, ax_initial,
-                       ay_initial, x_curve,
-                       y_curve);
+                       ay_initial);
 
-    Path path{};
-    auto n_points = lround(floor(t_final / dt));
-    for (int i = 0; i < n_points; i++)
-    {
-        double t = i * dt;
-        double x = x_curve.Evaluate(t);
-        double y = y_curve.Evaluate(t);
-
-        path.x.push_back(x);
-        path.y.push_back(y);
-    }
-
-    return path;
+    return std::move(path);
 }
 
-void
+Path
 PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
                                 double speed_final,
                                 double x_initial, double y_initial,
                                 double vx_initial, double vy_initial,
-                                double ax_initial, double ay_initial,
-                                Polynomial& x_curve, Polynomial& y_curve) const
+                                double ax_initial, double ay_initial) const
 {
     auto xy_final = getXY(s_final, d_final, mapData.waypoints_s,
                           mapData.waypoints_x, mapData.waypoints_y);
@@ -200,12 +184,29 @@ PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
     auto vx_final = -speed_final * mapData.waypoints_dy[last_waypoint_i];
     auto vy_final = speed_final * mapData.waypoints_dx[last_waypoint_i];
 
-    x_curve = JerkMinimalTrajectory({x_initial, vx_initial, ax_initial},
+    auto x_curve = JerkMinimalTrajectory({x_initial, vx_initial, ax_initial},
                                     {x_final, vx_final, ay_initial},
                                     t_final);
-    y_curve = JerkMinimalTrajectory({y_initial, vy_initial, 0},
+    auto y_curve = JerkMinimalTrajectory({y_initial, vy_initial, 0},
                                     {y_final, vy_final, 0},
                                     t_final);
+
+    auto vx_curve = x_curve.Differentiate();
+    auto vy_curve = y_curve.Differentiate();
+
+    Path path{};
+    auto n_points = lround(floor(t_final / dt));
+    for (int i = 0; i < n_points; i++)
+    {
+        double t = i * dt;
+
+        path.x.push_back(x_curve.Evaluate(t));
+        path.y.push_back(y_curve.Evaluate(t));
+        path.vx.push_back(vx_curve.Evaluate(t));
+        path.vy.push_back(vy_curve.Evaluate(t));
+    }
+
+    return std::move(path);
 }
 
 void PathPlanner::UpdateLocalisation(VehicleState state)
@@ -377,18 +378,12 @@ double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_id) cons
                             + pow(sensorFusionData.vy[car_id], 2));
     double d_car = sensorFusionData.vx[car_id];
 
-    Polynomial car_x_curve{};
-    Polynomial car_y_curve{};
-    GenerateTrajectory(
+    auto car_path = GenerateTrajectory(
         t, sensorFusionData.s[car_id] + car_speed + t, d_car, car_speed,
         sensorFusionData.x[car_id], sensorFusionData.y[car_id],
         sensorFusionData.vx[car_id], sensorFusionData.vy[car_id],
-        0.0, 0.0,
-        car_x_curve, car_y_curve
+        0.0, 0.0
     );
-
-    Polynomial car_vx_curve = car_x_curve.Differentiate();
-    Polynomial car_vy_curve = car_y_curve.Differentiate();
 
     for (size_t i = 1; i < path.x.size(); i++) {
         cost += 1000 * CarPotential(

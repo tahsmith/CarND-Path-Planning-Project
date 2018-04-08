@@ -90,11 +90,10 @@ private:
     double CarAvoidanceCost(const Path& path) const;
 
 
-    void GenerateTrajectory(double t_final, double s_final, double d_final,
+    Path GenerateTrajectory(double t_final, double s_final, double d_final,
                             double speed_final, double x_initial, double y_initial,
                             double vx_initial, double vy_initial, double ax_initial,
-                            double ay_initial, Polynomial& x_curve,
-                            Polynomial& y_curve) const;
+                            double ay_initial) const;
 };
 
 
