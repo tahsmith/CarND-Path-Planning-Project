@@ -31,6 +31,7 @@ static const int transitions[n_states][n_states] {
 };
 
 static const double LANE_WIDTH = 4.0;
+static const double FOLLOW_DISTANCE = 30.0;
 
 vector<uint8_t> SuccessorStates(size_t state) {
     vector<uint8_t> states{};
@@ -254,7 +255,7 @@ double PathPlanner::SafeSpeedForLane(size_t lane) const
     return speed;
 }
 
-double lane_target_cost(long target) {
+double valid_lane_cost(long target) {
     if ((target < 0) || (target > 2)) {
         return 1;
     }
@@ -266,19 +267,41 @@ double lane_change_cost(long current, long target) {
 }
 
 double over_take_on_inside_lane_only(double target) {
-    return (2.0 - target) / 2.0;
+    return abs(2.0 - target) / 2.0;
+}
+
+double speed_limit_cost(double speed, double limit) {
+    if (speed >= limit) {
+        return 1;
+    }
+    return 0;
 }
 
 double PathPlanner::CostForTrajectory(uint8_t state, const Plan& plan) const
 {
-    double cost = 0;
+    double speed_cost = 1 - plan.speed_target / speed_limit;
 
-    cost += 1 - plan.speed_target / speed_limit;
+    double valid_lane = valid_lane_cost(plan.lane_target);
 
-    cost += lane_target_cost(plan.lane_target);
+    double safe_lane_cost = over_take_on_inside_lane_only(plan.lane_target) * 0.1;
 
-    cost += over_take_on_inside_lane_only(plan.lane_target) * 0.1;
+    double car_avoidance_cost = CarAvoidanceCost(plan.path) * 1.0;
 
+    printf("speed_cost         = %f\n"
+           "valid_lane   = %f\n"
+           "safe_lane_cost     = %f\n"
+           "car_avoidance_cost = %f\n",
+           speed_cost,
+           valid_lane,
+           safe_lane_cost,
+           car_avoidance_cost
+           );
+
+    double cost = speed_limit_cost(plan.speed_target, speed_limit) * 0
+                  + speed_cost
+                  + valid_lane * 1000
+                  + safe_lane_cost
+                  + car_avoidance_cost;
     return cost;
 }
 
@@ -302,3 +325,83 @@ size_t PathPlanner::FindCarToFollow(size_t lane) const
     return closest;
 }
 
+double PathPlanner::CarAvoidanceCost(const Path& path) const
+{
+    double cost = 0;
+    for (size_t i = 0; i < sensorFusionData.id.size(); i++)
+    {
+        cost += CarAvoidanceCostPerCar(path, i);
+    }
+    return cost;
+}
+
+double car_potential(double x, double y, double car_x, double car_y, double car_vx, double car_vy) {
+    double dx = x - car_x;
+    double dy = y - car_y;
+    double r = sqrt(dx * dx + dy * dy);
+    if (r == 0) {
+        return 1;
+    }
+    double rx = dx / r;
+    double ry = dy / r;
+
+    double rv = sqrt(car_vx * car_vx + car_vy * car_vy);
+    if (r == 0) {
+        if (r < LANE_WIDTH) {
+            return 1;
+        }
+        else
+        {
+            return 0;
+        }
+    }
+    double rvx = car_vx / rv;
+    double rvy = car_vy / rv;
+    double dot = abs(rx * rvx + ry * rvy);
+
+    if (r < fmax(LANE_WIDTH / 2, FOLLOW_DISTANCE * dot)) {
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+
+
+double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_id) const
+{
+//    assert(car_potential(0, 0, 0, 0, 0, 0) == 1.0);
+//    assert(car_potential(0, 0, 0, 0, 1, 1) == 1.0);
+//
+//    assert(car_potential( LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
+//    assert(car_potential(-LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
+//
+//    assert(car_potential( LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
+//    assert(car_potential(-LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
+//
+//    assert(car_potential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
+//    assert(car_potential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
+//
+//    assert(car_potential(0,  FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
+//    assert(car_potential(0, -FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
+
+    double cost = 0;
+    for (size_t i = 0; i < path.x.size(); i++) {
+        cost = fmax(car_potential(
+            path.x[i], path.y[i],
+            sensorFusionData.x[car_id] + sensorFusionData.vx[car_id] * dt * i,
+            sensorFusionData.y[car_id] + sensorFusionData.vy[car_id] * dt * i,
+            sensorFusionData.vx[car_id],
+            sensorFusionData.vy[car_id]
+        ), cost);
+    }
+    return cost;
+}
+
+#include "catch.hpp"
+
+TEST_CASE("car_potential") {
+    SECTION("on top") {
+        REQUIRE(car_potential(0, 0, 0, 0, 0) == 0.0);
+    }
+}

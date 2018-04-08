@@ -54,7 +54,7 @@ public:
 
 
 private:
-    const double speed_limit = 21.90496;  // m s^-1 ~= 49 miles / hr
+    const double speed_limit = 22.35 * 0.95;  //  22.35m s^-1 ~= 40 miles / hr
     const double dt;
     const MapData mapData;
     VehicleState vehicle_state;
@@ -75,6 +75,8 @@ private:
     size_t FindCarToFollow(size_t lane) const;
 
     double SafeSpeedForLane(size_t lane) const;
+    double CarAvoidanceCostPerCar(const Path& path, size_t i) const;
+    double CarAvoidanceCost(const Path& path) const;
 };
 
 
