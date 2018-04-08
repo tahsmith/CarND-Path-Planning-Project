@@ -28,6 +28,8 @@ static const int transitions[n_states][n_states] {
     {1, 1, 1}
 };
 
+static const double LANE_WIDTH = 2.0;
+
 vector<uint8_t> SuccessorStates(size_t state) {
     vector<uint8_t> states{};
     for(size_t i = 0; i < n_states; ++i) {
@@ -72,12 +74,20 @@ Path PathPlanner::PlanPath()
     {
         if (next_state == 1)
         {
-            d_target -= 2;
+            d_target -= LANE_WIDTH;
         }
         else if (next_state == 2)
         {
-            d_target += 2;
+            d_target += LANE_WIDTH;
         }
+    }
+    if (next_state != planner_state)
+    {
+        printf("%s: d_target %f speed_target %f\n",
+               states[next_state],
+               d_target,
+               speed_target
+        );
     }
     planner_state = next_state;
     return trajectory_list[minimum_i];
@@ -223,7 +233,7 @@ Path PathPlanner::GenerateTrajectoryForState(uint8_t state) const
     {
         speed = speed_limit;
         s_final = vehicle_state.s + speed_limit * t_final;
-        d_final = d_target - 2;
+        d_final = d_target - LANE_WIDTH;
 
     }
     else  // CHANGE_RIGHT
@@ -231,7 +241,7 @@ Path PathPlanner::GenerateTrajectoryForState(uint8_t state) const
         assert(state == 2);
         speed = speed_limit;
         s_final = vehicle_state.s + speed_limit * t_final;
-        d_final = d_target + 2;
+        d_final = d_target + LANE_WIDTH;
     }
     return GenerateTrajectory(t_final, s_final, d_final, speed);
 }
@@ -258,7 +268,7 @@ size_t PathPlanner::FindCarToFollow() const
     double closest_s = numeric_limits<double>::infinity();
     for (size_t i = 0; i < sensorFusionData.id.size(); ++i)
     {
-        if (abs(sensorFusionData.d[i] - d_target) < 3.0) {
+        if (abs(sensorFusionData.d[i] - d_target) < LANE_WIDTH / 2) {
             if (sensorFusionData.s[i] > vehicle_state.s) {
                 if (sensorFusionData.s[i] < closest_s) {
                     closest = i;
