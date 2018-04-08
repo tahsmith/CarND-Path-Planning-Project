@@ -11,8 +11,11 @@ class Polynomial
 {
 public:
     Polynomial(std::initializer_list<double> coefficients);
+    Polynomial(std::vector<double> coefficients);
 
     double Evaluate(double x);
+
+    Polynomial Differentiate();
 
 private:
     std::vector<double> coefficients;
