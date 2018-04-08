@@ -56,12 +56,12 @@ Path PathPlanner::PlanPath()
     follow_id = FindCarToFollow(0);
     speed_target = SafeSpeedForLane(lane_current);
 
-//    printf("%s: lane_current %d follow_id %zd speed_target %f\n",
-//           states[planner_state],
-//           lane_current,
-//           follow_id,
-//           speed_target
-//    );
+    printf("%s: lane_current %d follow_id %zd speed_target %f\n",
+           states[planner_state],
+           lane_current,
+           follow_id,
+           speed_target
+    );
 
     auto candidate_states = SuccessorStates(planner_state);
     std::vector<double> cost_list(candidate_states.size(), std::numeric_limits<float>::infinity());
@@ -311,7 +311,8 @@ double PathPlanner::CostForTrajectory(uint8_t state, const Plan& plan) const
                   + speed_cost
                   + valid_lane * 1000
                   + safe_lane_cost
-                  + car_avoidance_cost;
+//                  + car_avoidance_cost
+    ;
     return cost;
 }
 
@@ -363,7 +364,7 @@ double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_id) cons
     assert(CarPotential(0, -FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
 
     double cost = 0;
-    double t = path.x.size() / dt;
+    double t = path.x.size() * dt;
     double car_speed = sqrt(pow(sensorFusionData.vx[car_id], 2)
                             + pow(sensorFusionData.vy[car_id], 2));
     double d_car = round(sensorFusionData.vx[car_id]);
