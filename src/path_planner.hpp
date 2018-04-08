@@ -17,6 +17,8 @@ class Path
 public:
     std::vector<double> x;
     std::vector<double> y;
+    std::vector<double> vx;
+    std::vector<double> vy;
 };
 
 class Plan
