@@ -75,8 +75,18 @@ private:
     size_t FindCarToFollow(size_t lane) const;
 
     double SafeSpeedForLane(size_t lane) const;
+    double CarPotential(double x, double y,
+                        double car_x, double car_y,
+                        double car_vx, double car_vy) const;
     double CarAvoidanceCostPerCar(const Path& path, size_t i) const;
     double CarAvoidanceCost(const Path& path) const;
+
+
+    void GenerateTrajectory(double t_final, double s_final, double d_final,
+                            double speed_final, double x_initial, double y_initial,
+                            double vx_initial, double vy_initial, double ax_initial,
+                            double ay_initial, Polynomial& x_curve,
+                            Polynomial& y_curve) const;
 };
 
 

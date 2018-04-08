@@ -148,25 +148,12 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
         vy_initial = 0;
         ay_initial = 0;
     }
-    auto xy_final = getXY(s_final, d_final, mapData.waypoints_s,
-                          mapData.waypoints_x, mapData.waypoints_y);
-
-    double x_final = xy_final[0];
-    double y_final = xy_final[1];
-
-    auto last_waypoint_i = ClosestWaypoint(x_final, y_final,
-                                           mapData.waypoints_x,
-                                           mapData.waypoints_y);
-
-    auto vx_final = -speed_final * mapData.waypoints_dy[last_waypoint_i];
-    auto vy_final = speed_final * mapData.waypoints_dx[last_waypoint_i];
-
-    auto x_curve = JerkMinimalTrajectory({x_initial, vx_initial, ax_initial},
-                                   {x_final, vx_final, ay_initial},
-                                   t_final);
-    auto y_curve = JerkMinimalTrajectory({y_initial, vy_initial, 0},
-                                   {y_final, vy_final, 0},
-                                   t_final);
+    Polynomial x_curve{};
+    Polynomial y_curve{};
+    GenerateTrajectory(t_final, s_final, d_final, speed_final, x_initial,
+                       y_initial, vx_initial, vy_initial, ax_initial,
+                       ay_initial, x_curve,
+                       y_curve);
 
     Path path{};
     auto n_points = lround(floor(t_final / dt));
@@ -187,6 +174,35 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
     }
 
     return path;
+}
+
+void
+PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
+                                double speed_final,
+                                double x_initial, double y_initial,
+                                double vx_initial, double vy_initial,
+                                double ax_initial, double ay_initial,
+                                Polynomial& x_curve, Polynomial& y_curve) const
+{
+    auto xy_final = getXY(s_final, d_final, mapData.waypoints_s,
+                          mapData.waypoints_x, mapData.waypoints_y);
+
+    double x_final = xy_final[0];
+    double y_final = xy_final[1];
+
+    auto last_waypoint_i = ClosestWaypoint(x_final, y_final,
+                                           mapData.waypoints_x,
+                                           mapData.waypoints_y);
+
+    auto vx_final = -speed_final * mapData.waypoints_dy[last_waypoint_i];
+    auto vy_final = speed_final * mapData.waypoints_dx[last_waypoint_i];
+
+    x_curve = JerkMinimalTrajectory({x_initial, vx_initial, ax_initial},
+                                    {x_final, vx_final, ay_initial},
+                                    t_final);
+    y_curve = JerkMinimalTrajectory({y_initial, vy_initial, 0},
+                                    {y_final, vy_final, 0},
+                                    t_final);
 }
 
 void PathPlanner::UpdateLocalisation(VehicleState state)
@@ -287,15 +303,15 @@ double PathPlanner::CostForTrajectory(uint8_t state, const Plan& plan) const
 
     double car_avoidance_cost = CarAvoidanceCost(plan.path) * 1.0;
 
-    printf("speed_cost         = %f\n"
-           "valid_lane   = %f\n"
-           "safe_lane_cost     = %f\n"
-           "car_avoidance_cost = %f\n",
-           speed_cost,
-           valid_lane,
-           safe_lane_cost,
-           car_avoidance_cost
-           );
+//    printf("speed_cost         = %f\n"
+//           "valid_lane   = %f\n"
+//           "safe_lane_cost     = %f\n"
+//           "car_avoidance_cost = %f\n",
+//           speed_cost,
+//           valid_lane,
+//           safe_lane_cost,
+//           car_avoidance_cost
+//           );
 
     double cost = speed_limit_cost(plan.speed_target, speed_limit) * 0
                   + speed_cost
@@ -335,7 +351,57 @@ double PathPlanner::CarAvoidanceCost(const Path& path) const
     return cost;
 }
 
-double car_potential(double x, double y, double car_x, double car_y, double car_vx, double car_vy) {
+double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_id) const
+{
+    assert(CarPotential(0, 0, 0, 0, 0, 0) == 1.0);
+    assert(CarPotential(0, 0, 0, 0, 1, 1) == 1.0);
+
+    assert(CarPotential( LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
+    assert(CarPotential(-LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
+
+    assert(CarPotential( LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
+    assert(CarPotential(-LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
+
+    assert(CarPotential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
+    assert(CarPotential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
+
+    assert(CarPotential(0,  FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
+    assert(CarPotential(0, -FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
+
+    double cost = 0;
+    double t = path.x.size() / dt;
+    double car_speed = sqrt(pow(sensorFusionData.vx[car_id], 2)
+                            + pow(sensorFusionData.vy[car_id], 2));
+    double d_car = round(sensorFusionData.vx[car_id]);
+
+    Polynomial car_x_curve{};
+    Polynomial car_y_curve{};
+    GenerateTrajectory(
+        t, sensorFusionData.s[car_id] + car_speed + t, d_car, car_speed,
+        sensorFusionData.x[car_id], sensorFusionData.y[car_id],
+        sensorFusionData.vx[car_id], sensorFusionData.vy[car_id],
+        0.0, 0.0,
+        car_x_curve, car_y_curve
+    );
+
+    Polynomial car_vx_curve = car_x_curve.Differentiate();
+    Polynomial car_vy_curve = car_y_curve.Differentiate();
+
+    for (size_t i = 1; i < path.x.size(); i++) {
+        cost = fmax(CarPotential(
+            path.x[i], path.y[i],
+            car_x_curve.Evaluate(i * dt),
+            car_y_curve.Evaluate(i * dt),
+            car_vx_curve.Evaluate(i * dt),
+            car_vy_curve.Evaluate(i * dt)
+        ), cost);
+    }
+    return cost;
+}
+
+double PathPlanner::CarPotential(double x, double y, double car_x, double car_y,
+                                 double car_vx, double car_vy) const
+{
     double dx = x - car_x;
     double dy = y - car_y;
     double r = sqrt(dx * dx + dy * dy);
@@ -357,45 +423,16 @@ double car_potential(double x, double y, double car_x, double car_y, double car_
     }
     double rvx = car_vx / rv;
     double rvy = car_vy / rv;
-    double dot = abs(rx * rvx + ry * rvy);
+    double angle = acos(rx * rvx + ry * rvy);
+    double r_wall = FOLLOW_DISTANCE / 4 * cos(angle)
+                    + LANE_WIDTH * 0.8 * sin(angle);
 
-    if (r < fmax(LANE_WIDTH / 2, FOLLOW_DISTANCE * dot)) {
+    if (r < r_wall) {
         return 1;
     }
     else {
         return 0;
     }
-}
-
-
-double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_id) const
-{
-//    assert(car_potential(0, 0, 0, 0, 0, 0) == 1.0);
-//    assert(car_potential(0, 0, 0, 0, 1, 1) == 1.0);
-//
-//    assert(car_potential( LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
-//    assert(car_potential(-LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
-//
-//    assert(car_potential( LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
-//    assert(car_potential(-LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
-//
-//    assert(car_potential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
-//    assert(car_potential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
-//
-//    assert(car_potential(0,  FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
-//    assert(car_potential(0, -FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
-
-    double cost = 0;
-    for (size_t i = 0; i < path.x.size(); i++) {
-        cost = fmax(car_potential(
-            path.x[i], path.y[i],
-            sensorFusionData.x[car_id] + sensorFusionData.vx[car_id] * dt * i,
-            sensorFusionData.y[car_id] + sensorFusionData.vy[car_id] * dt * i,
-            sensorFusionData.vx[car_id],
-            sensorFusionData.vy[car_id]
-        ), cost);
-    }
-    return cost;
 }
 
 #include "catch.hpp"

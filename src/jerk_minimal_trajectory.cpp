@@ -26,6 +26,19 @@ double Polynomial::Evaluate(double x)
     return sum;
 }
 
+Polynomial Polynomial::Differentiate()
+{
+    vector<double> new_coefficients(coefficients.size() - 1, 0.0);
+    for (int i = 1; i < coefficients.size(); ++i)
+    {
+        new_coefficients[i - 1] = coefficients[i] * i;
+    }
+    return Polynomial{new_coefficients};
+}
+
+Polynomial::Polynomial(std::vector<double> coefficients) : coefficients(std::move(coefficients))
+{}
+
 Polynomial
 JerkMinimalTrajectory(std::vector<double> initial, std::vector<double> final,
                       double T)
