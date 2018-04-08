@@ -17,18 +17,20 @@ using std::numeric_limits;
 
 const size_t n_states = 4;
 const char* states[n_states] = {
+    "START",
     "FOLLOW",
     "CHANGE_LEFT",
     "CHANGE_RIGHT"
 };
 
 static const int transitions[n_states][n_states] {
-    {1, 1, 1},
-    {1, 1, 1},
-    {1, 1, 1}
+    {0, 1, 0, 0},
+    {0, 1, 1, 1},
+    {0, 1, 1, 1},
+    {0, 1, 1, 1}
 };
 
-static const double LANE_WIDTH = 2.0;
+static const double LANE_WIDTH = 4.0;
 
 vector<uint8_t> SuccessorStates(size_t state) {
     vector<uint8_t> states{};
@@ -42,22 +44,33 @@ vector<uint8_t> SuccessorStates(size_t state) {
 PathPlanner::PathPlanner(double dt, MapData mapData) :
     dt(dt),
     mapData{std::move(mapData)},
-    d_target{6.0},
+    lane_current{1},
     speed_target{speed_limit},
     planner_state{0}
 {}
 
 Path PathPlanner::PlanPath()
 {
+    lane_current = lround((vehicle_state.d - LANE_WIDTH / 2) / LANE_WIDTH);
+    follow_id = FindCarToFollow(0);
+    speed_target = SafeSpeedForLane(lane_current);
+
+//    printf("%s: lane_current %d follow_id %zd speed_target %f\n",
+//           states[planner_state],
+//           lane_current,
+//           follow_id,
+//           speed_target
+//    );
+
     auto candidate_states = SuccessorStates(planner_state);
     std::vector<double> cost_list(candidate_states.size(), std::numeric_limits<float>::infinity());
-    vector<Path> trajectory_list(candidate_states.size());
+    vector<Plan> plan_list(candidate_states.size());
     for (size_t i = 0; i < cost_list.size(); ++i)
     {
-        auto trajectory = GenerateTrajectoryForState(candidate_states[i]);
-        if(trajectory.x.size() > 0) {
-            cost_list[i] = CostForTrajectory(i, trajectory);
-            trajectory_list[i] = move(trajectory);
+        auto plan = GeneratePlanForState(candidate_states[i]);
+        if(plan.path.x.size() > 0) {
+            cost_list[i] = CostForTrajectory(i, plan);
+            plan_list[i] = move(plan);
         }
     }
 
@@ -70,27 +83,17 @@ Path PathPlanner::PlanPath()
         }
     }
     auto next_state = candidate_states[minimum_i];
-    if (planner_state == 0)
-    {
-        if (next_state == 1)
-        {
-            d_target -= LANE_WIDTH;
-        }
-        else if (next_state == 2)
-        {
-            d_target += LANE_WIDTH;
-        }
-    }
+
     if (next_state != planner_state)
     {
-        printf("%s: d_target %f speed_target %f\n",
+        printf("%s: lane_target %d speed_target %f\n",
                states[next_state],
-               d_target,
-               speed_target
+               plan_list[minimum_i].lane_target,
+               plan_list[minimum_i].speed_target
         );
     }
     planner_state = next_state;
-    return trajectory_list[minimum_i];
+    return plan_list[minimum_i].path;
 }
 
 Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
@@ -200,75 +203,93 @@ void PathPlanner::UpdateHistory(Path previousPath)
     this->previousPath = std::move(previousPath);
 }
 
-Path PathPlanner::GenerateTrajectoryForState(uint8_t state) const
+Plan PathPlanner::GeneratePlanForState(uint8_t state) const
 {
-    double follow_distance = 30;
-    double t_final = 1.0;
-    double s_final;
-    double d_final;
-    double speed;
-    if (state == 0)  // FOLLOW
+    long lane;
+    if (state == 1)  // FOLLOW
     {
-        auto car_in_front = FindCarToFollow();
-        if (car_in_front != sensorFusionData.id.size())
-        {
-            if (abs(sensorFusionData.s[car_in_front] - vehicle_state.s) <
-                follow_distance) {
-                speed = sqrt(sensorFusionData.vx[car_in_front] * sensorFusionData.vx[car_in_front]
-                             + sensorFusionData.vy[car_in_front] * sensorFusionData.vy[car_in_front]);
-            }
-            else
-            {
-                speed = speed_limit;
-            }
-        }
-        else
-        {
-            speed = speed_limit;
-        }
-        s_final = vehicle_state.s + speed * t_final;
-        d_final = d_target;
+        lane = lane_current;
     }
-    else if(state == 1) // CHANGE_LEFT
+    else if(state == 2) // CHANGE_LEFT
     {
-        speed = speed_limit;
-        s_final = vehicle_state.s + speed_limit * t_final;
-        d_final = d_target - LANE_WIDTH;
-
+        lane = lane_current - 1;
     }
     else  // CHANGE_RIGHT
     {
-        assert(state == 2);
-        speed = speed_limit;
-        s_final = vehicle_state.s + speed_limit * t_final;
-        d_final = d_target + LANE_WIDTH;
+        assert(state == 3);
+        lane = lane_current + 1;
     }
-    return GenerateTrajectory(t_final, s_final, d_final, speed);
+
+    double speed = SafeSpeedForLane(lane);
+    double t_final = 1.0;
+    double s_final = vehicle_state.s + speed * t_final;
+    double d_final = LANE_WIDTH / 2 + lane * LANE_WIDTH;
+    return {
+        GenerateTrajectory(t_final, s_final, d_final, speed),
+        lane,
+        speed
+    };
 }
 
-double PathPlanner::CostForTrajectory(uint8_t state, const Path& path) const
+double PathPlanner::SafeSpeedForLane(size_t lane) const
+{
+    double follow_distance = 30;
+    auto car_in_front = FindCarToFollow(lane);
+    double speed;
+    if ((car_in_front != sensorFusionData.id.size())
+        && (abs(sensorFusionData.s[car_in_front] - vehicle_state.s) <
+           follow_distance))
+    {
+        speed = sqrt(
+            sensorFusionData.vx[car_in_front] *
+            sensorFusionData.vx[car_in_front]
+            + sensorFusionData.vy[car_in_front] *
+              sensorFusionData.vy[car_in_front]);
+    }
+    else
+    {
+        speed = speed_limit;
+    }
+
+    return speed;
+}
+
+double lane_target_cost(long target) {
+    if ((target < 0) || (target > 2)) {
+        return 1;
+    }
+    return 0;
+}
+
+double lane_change_cost(long current, long target) {
+    return abs(current - target);
+}
+
+double over_take_on_inside_lane_only(double target) {
+    return (2.0 - target) / 2.0;
+}
+
+double PathPlanner::CostForTrajectory(uint8_t state, const Plan& plan) const
 {
     double cost = 0;
-    auto n_points = path.x.size();
-    double dx = path.x[n_points - 1] - path.x[n_points - 2];
-    double dy = path.y[n_points - 1] - path.y[n_points - 2];
-    cost = 1 - sqrt(dx * dx + dy * dy) / dt / speed_limit;
 
-    double change_cost = 0.01;
-    if (state == planner_state) {
-        change_cost = 0;
-    }
-    cost += change_cost;
+    cost += 1 - plan.speed_target / speed_limit;
+
+    cost += lane_target_cost(plan.lane_target);
+
+    cost += over_take_on_inside_lane_only(plan.lane_target) * 0.1;
+
     return cost;
 }
 
-size_t PathPlanner::FindCarToFollow() const
+size_t PathPlanner::FindCarToFollow(size_t lane) const
 {
     auto closest = sensorFusionData.id.size();
     double closest_s = numeric_limits<double>::infinity();
+    double d = LANE_WIDTH / 2 + lane * LANE_WIDTH;
     for (size_t i = 0; i < sensorFusionData.id.size(); ++i)
     {
-        if (abs(sensorFusionData.d[i] - d_target) < LANE_WIDTH / 2) {
+        if (abs(sensorFusionData.d[i] - d) < LANE_WIDTH / 2) {
             if (sensorFusionData.s[i] > vehicle_state.s) {
                 if (sensorFusionData.s[i] < closest_s) {
                     closest = i;
