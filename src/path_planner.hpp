@@ -19,6 +19,14 @@ public:
     std::vector<double> y;
 };
 
+class Plan
+{
+public:
+    Path path;
+    long lane_target;
+    double speed_target;
+};
+
 
 class VehicleState
 {
@@ -52,17 +60,21 @@ private:
     VehicleState vehicle_state;
     uint8_t planner_state;
     double speed_target;
-    double d_target;
+    long lane_current;
+    size_t follow_id;
     SensorFusionData sensorFusionData;
+
     Path previousPath;
 
     Path
     GenerateTrajectory(double t_final, double s_final, double d_final,
                            double speed_final) const;
+    Plan GeneratePlanForState(uint8_t state) const;
+    double CostForTrajectory(uint8_t state, const Plan&) const;
 
-    Path GenerateTrajectoryForState(uint8_t state) const;
-    double CostForTrajectory(uint8_t state, const Path&) const;
-    size_t FindCarToFollow() const;
+    size_t FindCarToFollow(size_t lane) const;
+
+    double SafeSpeedForLane(size_t lane) const;
 };
 
 
