@@ -452,8 +452,22 @@ double PathPlanner::SoftCarPotential(double x, double y,
 
 #include "catch.hpp"
 
-TEST_CASE("car_potential") {
-    SECTION("on top") {
-        REQUIRE(car_potential(0, 0, 0, 0, 0) == 0.0);
+TEST_CASE("PathPlanner") {
+    PathPlanner planner{1.0, MapData{}};
+    SECTION("CarPotential") {
+        REQUIRE(planner.CarPotential(0, 0, 0, 0, 0, 0) == 1.0);
+        REQUIRE(planner.CarPotential(0, 0, 0, 0, 1, 1) == 1.0);
+
+        REQUIRE(planner.CarPotential( LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
+        REQUIRE(planner.CarPotential(-LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
+
+        REQUIRE(planner.CarPotential( LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
+        REQUIRE(planner.CarPotential(-LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
+
+        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
+        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
+
+        REQUIRE(planner.CarPotential(0,  FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
+        REQUIRE(planner.CarPotential(0, -FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
     }
 }
