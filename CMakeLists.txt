@@ -25,5 +25,5 @@ add_executable(test_all ${sources} src/test_main.cpp)
 target_link_libraries(test_all z ssl uv uWS)
 
 add_executable(path_planning src/main.cpp ${sources})
-#add_definitions(-DCATCH_CONFIG_DISABLE)
+target_compile_definitions(path_planning PRIVATE -DCATCH_CONFIG_DISABLE)
 target_link_libraries(path_planning z ssl uv uWS)

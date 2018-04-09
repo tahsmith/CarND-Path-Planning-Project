@@ -16,23 +16,26 @@ using std::vector;
 using std::move;
 using std::numeric_limits;
 
-const size_t n_states = 4;
+const size_t n_states = 5;
 const char* states[n_states] = {
     "START",
     "FOLLOW",
     "CHANGE_LEFT",
-    "CHANGE_RIGHT"
+    "CHANGE_RIGHT",
+    "EMERGENCY_STOP"
 };
 
 static const int transitions[n_states][n_states] {
-    {0, 1, 0, 0},
-    {0, 1, 1, 1},
-    {0, 1, 1, 1},
-    {0, 1, 1, 1}
+    {0, 1, 0, 0, 1},
+    {0, 1, 1, 1, 1},
+    {0, 1, 1, 0, 1},
+    {0, 1, 0, 1, 1},
+    {0, 1, 1, 1, 1}
+
 };
 
 static const double LANE_WIDTH = 4.0;
-static const double FOLLOW_DISTANCE = 15.0;
+static const double FOLLOW_DISTANCE = 50.0;
 
 static bool debug_cost = false;
 
@@ -227,22 +230,30 @@ void PathPlanner::UpdateHistory(Path previousPath)
 Plan PathPlanner::GeneratePlanForState(uint8_t state) const
 {
     long lane;
+    double speed;
     if (state == 1)  // FOLLOW
     {
         lane = lane_current;
+        speed = SafeSpeedForLane(lane);
     }
     else if(state == 2) // CHANGE_LEFT
     {
         lane = lane_current - 1;
+        speed = SafeSpeedForLane(lane);
     }
-    else  // CHANGE_RIGHT
+    else if(state == 3)  // CHANGE_RIGHT
     {
-        assert(state == 3);
         lane = lane_current + 1;
+        speed = SafeSpeedForLane(lane);
+    }
+    else  // EMERGENCY_STOP
+    {
+        assert(state == 4);
+        lane = lane_current + 1;
+        speed = 0;
     }
 
-    double speed = SafeSpeedForLane(lane);
-    double t_final = 1.0;
+    double t_final = 2.0;
     double s_final = vehicle_state.s + speed * t_final;
     double d_final = LANE_WIDTH / 2 + lane * LANE_WIDTH;
     return {
@@ -307,11 +318,11 @@ double PathPlanner::CostForTrajectory(uint8_t state, const Plan& plan) const
     double car_avoidance_cost = CarAvoidanceCost(plan.path) * 1.0;
 
     vector<double> costs = {
-        5 * speed_cost,
+        9.0 * speed_cost,
         100000 * valid_lane,
-        0.2 * over_take_on_inside_lane_only(plan.lane_target),
-        0.2 * car_avoidance_cost,
-        0.0 * lane_change_cost(lane_current, plan.lane_target)
+        1.0 * over_take_on_inside_lane_only(plan.lane_target),
+        0.1 * car_avoidance_cost,
+        0.8 * lane_change_cost(lane_current, plan.lane_target)
     };
 
     if (debug_cost) {
@@ -447,7 +458,22 @@ double PathPlanner::SoftCarPotential(double x, double y,
     double dy = y - car_y;
     double r = dx * dx + dy * dy;
 
-    return exp(-r / LANE_WIDTH / LANE_WIDTH);
+    double car_rv = sqrt(car_vx * car_vx + car_vy * car_vy);
+    if (car_rv == 0) {
+        if (r < LANE_WIDTH) {
+            return 1;
+        }
+        else
+        {
+            return 0;
+        }
+    }
+
+    double forward = (dx * car_vx + dy * car_vy) / car_rv;
+    double lateral = (dy * car_vx - dx * car_vy) / car_rv;
+
+    return exp(-(pow(lateral / LANE_WIDTH, 2)
+                 + pow(forward / FOLLOW_DISTANCE, 2)));
 }
 
 #include "catch.hpp"
@@ -455,19 +481,19 @@ double PathPlanner::SoftCarPotential(double x, double y,
 TEST_CASE("PathPlanner") {
     PathPlanner planner{1.0, MapData{}};
     SECTION("CarPotential") {
-        REQUIRE(planner.CarPotential(0, 0, 0, 0, 0, 0) == 1.0);
-        REQUIRE(planner.CarPotential(0, 0, 0, 0, 1, 1) == 1.0);
+    REQUIRE(planner.CarPotential(0, 0, 0, 0, 0, 0, 0, 0) == 1.0);
+    REQUIRE(planner.CarPotential(0, 0, 0, 0, 0, 0, 1, 1) == 1.0);
 
-        REQUIRE(planner.CarPotential( LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
-        REQUIRE(planner.CarPotential(-LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
+    REQUIRE(planner.CarPotential( LANE_WIDTH, 0, 0, 0, 0, 0, 0, 1) == 0.0);
+    REQUIRE(planner.CarPotential(-LANE_WIDTH, 0, 0, 0, 0, 0, 0, 1) == 0.0);
 
-        REQUIRE(planner.CarPotential( LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
-        REQUIRE(planner.CarPotential(-LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
+    REQUIRE(planner.CarPotential( LANE_WIDTH / 2, 0, 0, 0, 0, 0, 0, 1) == 1.0);
+    REQUIRE(planner.CarPotential(-LANE_WIDTH / 2, 0, 0, 0, 0, 0, 0, 1) == 1.0);
 
-        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
-        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
+    REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 0, 0, 1) == 1.0);
+    REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 0, 0, 1) == 1.0);
 
-        REQUIRE(planner.CarPotential(0,  FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
-        REQUIRE(planner.CarPotential(0, -FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
+    REQUIRE(planner.CarPotential(0,  FOLLOW_DISTANCE, 0, 0, 0, 0, 0, 1) == 0.0);
+    REQUIRE(planner.CarPotential(0, -FOLLOW_DISTANCE, 0, 0, 0, 0, 0, 1) == 0.0);
     }
 }
