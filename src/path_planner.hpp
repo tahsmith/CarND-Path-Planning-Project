@@ -25,6 +25,7 @@ class Plan
 {
 public:
     Path path;
+    long lane_current;
     long lane_target;
     double speed_target;
 };
@@ -55,14 +56,13 @@ public:
     Path PlanPath();
 
 
-    const double speed_limit = 22.35 * 0.90;  //  22.35m s^-1 ~= 40 miles / hr
+    const double speed_limit = 22.35 * 0.90;  //  22.35m s^-1 ~= 50 miles / hr
     const double dt;
     const MapData mapData;
     VehicleState vehicle_state;
     uint8_t planner_state;
-    double speed_target;
-    long lane_current;
-    size_t follow_id;
+    Plan current_plan;
+    long lane_actual;
     SensorFusionData sensorFusionData;
 
     Path previousPath;
@@ -71,11 +71,11 @@ public:
     GenerateTrajectory(double t_final, double s_final, double d_final,
                            double speed_final) const;
     Plan GeneratePlanForState(uint8_t state) const;
-    double CostForTrajectory(uint8_t state, const Plan&) const;
+    double CostForTrajectory(const Plan&) const;
 
-    size_t FindCarToFollow(size_t lane) const;
+    size_t FindCarToFollow(long lane) const;
 
-    double SafeSpeedForLane(size_t lane) const;
+    double SafeSpeedForLane(long lane) const;
     double CarPotential(double x, double y,
                         double vx, double vy,
                         double car_x, double car_y,

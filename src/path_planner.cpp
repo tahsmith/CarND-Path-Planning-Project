@@ -26,16 +26,18 @@ const char* states[n_states] = {
 };
 
 static const int transitions[n_states][n_states] {
-    {0, 1, 0, 0, 1},
-    {0, 1, 1, 1, 1},
-    {0, 1, 1, 0, 1},
-    {0, 1, 0, 1, 1},
-    {0, 1, 1, 1, 1}
+    {0, 1, 0, 0, 0},
+    {0, 1, 1, 1, 0},
+    {0, 1, 1, 0, 0},
+    {0, 1, 0, 1, 0},
+    {0, 1, 0, 0, 1}
 
 };
 
 static const double LANE_WIDTH = 4.0;
-static const double FOLLOW_DISTANCE = 50.0;
+static const double FOLLOW_DISTANCE = 15.0;
+static const double CAR_LENGTH = 5.0;
+static const double CAR_WIDTH = 3.2;
 
 static bool debug_cost = false;
 
@@ -52,23 +54,21 @@ vector<uint8_t> SuccessorStates(size_t state) {
 PathPlanner::PathPlanner(double dt, MapData mapData) :
     dt(dt),
     mapData{std::move(mapData)},
-    lane_current{1},
-    speed_target{speed_limit},
+    current_plan{{}, 2, 2, 0},
     planner_state{0}
 {}
 
 Path PathPlanner::PlanPath()
 {
-    lane_current = lround((vehicle_state.d - LANE_WIDTH / 2) / LANE_WIDTH);
-    follow_id = FindCarToFollow(0);
-    speed_target = SafeSpeedForLane(lane_current);
+    lane_actual = lround((vehicle_state.d - LANE_WIDTH / 2) / LANE_WIDTH);
 
-//    printf("%s: lane_current %ld follow_id %zd speed_target %f\n",
-//           states[planner_state],
-//           lane_current,
-//           follow_id,
-//           speed_target
-//    );
+    printf("PlanPath()\n%s: lane_actual %ld lane_current %ld lane_target %ld speed_target %f\n",
+           states[planner_state],
+           lane_actual,
+           current_plan.lane_current,
+           current_plan.lane_target,
+           current_plan.speed_target
+    );
 
     auto candidate_states = SuccessorStates(planner_state);
     std::vector<double> cost_list(candidate_states.size(), std::numeric_limits<float>::infinity());
@@ -76,15 +76,19 @@ Path PathPlanner::PlanPath()
     for (size_t i = 0; i < cost_list.size(); ++i)
     {
         auto plan = GeneratePlanForState(candidate_states[i]);
-        if(plan.path.x.size() > 0) {
-            cost_list[i] = CostForTrajectory(i, plan);
+        if(!plan.path.x.empty()) {
+            debug_cost = true;
+            printf("PLAN %s\n", states[candidate_states[i]]);
+            cost_list[i] = CostForTrajectory(plan);
+            printf("TOTAL: %f\n", cost_list[i]);
+            debug_cost = false;
             plan_list[i] = move(plan);
         }
     }
 
     double minimum = cost_list[0];
     size_t minimum_i = 0;
-    for(int i = 1; i < cost_list.size(); ++i) {
+    for(size_t i = 1; i < cost_list.size(); ++i) {
         if(cost_list[i] < minimum) {
             minimum = cost_list[i];
             minimum_i = i;
@@ -101,11 +105,8 @@ Path PathPlanner::PlanPath()
 //        );
 //    }
 
-    debug_cost = true;
-    CostForTrajectory(next_state, plan_list[minimum_i]);
-    debug_cost = false;
-
     planner_state = next_state;
+    current_plan = plan_list[minimum_i];
     return plan_list[minimum_i].path;
 }
 
@@ -233,37 +234,38 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
     double speed;
     if (state == 1)  // FOLLOW
     {
-        lane = lane_current;
+        lane = lane_actual;
         speed = SafeSpeedForLane(lane);
     }
     else if(state == 2) // CHANGE_LEFT
     {
-        lane = lane_current - 1;
+        lane = lane_actual - 1;
         speed = SafeSpeedForLane(lane);
     }
     else if(state == 3)  // CHANGE_RIGHT
     {
-        lane = lane_current + 1;
+        lane = lane_actual + 1;
         speed = SafeSpeedForLane(lane);
     }
     else  // EMERGENCY_STOP
     {
         assert(state == 4);
-        lane = lane_current + 1;
+        lane = lane_actual;
         speed = 0;
     }
 
-    double t_final = 2.0;
+    double t_final = 1.0;
     double s_final = vehicle_state.s + speed * t_final;
     double d_final = LANE_WIDTH / 2 + lane * LANE_WIDTH;
     return {
         GenerateTrajectory(t_final, s_final, d_final, speed),
+        lane_actual,
         lane,
         speed
     };
 }
 
-double PathPlanner::SafeSpeedForLane(size_t lane) const
+double PathPlanner::SafeSpeedForLane(long lane) const
 {
     auto car_in_front = FindCarToFollow(lane);
     double speed;
@@ -292,41 +294,33 @@ double valid_lane_cost(long target) {
     return 0;
 }
 
-double lane_change_cost(long current, long target) {
-    return abs(current - target);
-}
-
-double over_take_on_inside_lane_only(double target) {
-    return abs(2.0 - target) / 2.0;
-}
-
-double speed_limit_cost(double speed, double limit) {
-    if (speed >= limit) {
+double keep_right(long current, long target) {
+    if (target <= current) {
         return 1;
     }
-    return 0;
+    else {
+        return 0;
+    }
 }
 
-double PathPlanner::CostForTrajectory(uint8_t state, const Plan& plan) const
+double PathPlanner::CostForTrajectory(const Plan& plan) const
 {
     double speed_cost = 1 - plan.speed_target / speed_limit;
 
     double valid_lane = valid_lane_cost(plan.lane_target);
 
-    double safe_lane_cost = over_take_on_inside_lane_only(plan.lane_target) * 0.1;
-
     double car_avoidance_cost = CarAvoidanceCost(plan.path) * 1.0;
 
     vector<double> costs = {
-        9.0 * speed_cost,
+        4.0 * speed_cost,
         100000 * valid_lane,
-        1.0 * over_take_on_inside_lane_only(plan.lane_target),
-        0.1 * car_avoidance_cost,
-        0.8 * lane_change_cost(lane_current, plan.lane_target)
+        0.8 * keep_right(plan.lane_current, plan.lane_target),
+        2.0 * car_avoidance_cost,
+        1 - exp(-abs(2 * lane_actual - plan.lane_current - plan.lane_target))
     };
 
     if (debug_cost) {
-        std::cout << "COSTS:\n";
+        std::cout << "costs:\n";
         for (auto&& item : costs)
         {
             std::cout << item << '\n';
@@ -336,7 +330,7 @@ double PathPlanner::CostForTrajectory(uint8_t state, const Plan& plan) const
     return std::accumulate(costs.begin(), costs.end(), 0.0);
 }
 
-size_t PathPlanner::FindCarToFollow(size_t lane) const
+size_t PathPlanner::FindCarToFollow(long lane) const
 {
     auto closest = sensorFusionData.id.size();
     double closest_s = numeric_limits<double>::infinity();
@@ -387,7 +381,7 @@ double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_id) cons
     double t = path.x.size() * dt;
     double car_speed = sqrt(pow(sensorFusionData.vx[car_id], 2)
                             + pow(sensorFusionData.vy[car_id], 2));
-    double d_car = sensorFusionData.vx[car_id];
+    double d_car = sensorFusionData.d[car_id];
 
     auto car_path = GenerateTrajectory(
         t, sensorFusionData.s[car_id] + car_speed + t, d_car, car_speed,
@@ -404,7 +398,7 @@ double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_id) cons
             car_path.vx[i], car_path.vy[i]
         );
 
-        cost += SoftCarPotential(
+        cost += 1.0 * SoftCarPotential(
             path.x[i], path.y[i],
             path.vx[i], path.vy[i],
             car_path.x[i], car_path.y[i],
@@ -425,7 +419,7 @@ double PathPlanner::CarPotential(double x, double y,
 
     double car_rv = sqrt(car_vx * car_vx + car_vy * car_vy);
     if (car_rv == 0) {
-        if (r < LANE_WIDTH) {
+        if (r < CAR_WIDTH) {
             return 1;
         }
         else
@@ -438,8 +432,8 @@ double PathPlanner::CarPotential(double x, double y,
     double lateral = (dy * car_vx - dx * car_vy) / car_rv;
 
     double cost = 0;
-    if ((abs(lateral) < LANE_WIDTH * 0.8)
-        && (abs(forward) < FOLLOW_DISTANCE * 0.5 )) {
+    if ((abs(lateral) < CAR_WIDTH)
+        && (abs(forward) < CAR_LENGTH )) {
         cost += 1;
     }
     else {
@@ -460,7 +454,7 @@ double PathPlanner::SoftCarPotential(double x, double y,
 
     double car_rv = sqrt(car_vx * car_vx + car_vy * car_vy);
     if (car_rv == 0) {
-        if (r < LANE_WIDTH) {
+        if (r < CAR_WIDTH) {
             return 1;
         }
         else
@@ -472,8 +466,8 @@ double PathPlanner::SoftCarPotential(double x, double y,
     double forward = (dx * car_vx + dy * car_vy) / car_rv;
     double lateral = (dy * car_vx - dx * car_vy) / car_rv;
 
-    return exp(-(pow(lateral / LANE_WIDTH, 2)
-                 + pow(forward / FOLLOW_DISTANCE, 2)));
+    return exp(-(pow(lateral / CAR_WIDTH, 2)
+                 + pow(forward / CAR_LENGTH, 2)));
 }
 
 #include "catch.hpp"
