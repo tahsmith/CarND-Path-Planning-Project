@@ -93,6 +93,8 @@ public:
                             double speed_final, double x_initial, double y_initial,
                             double vx_initial, double vy_initial, double ax_initial,
                             double ay_initial) const;
+
+    std::tuple<double, double> InterpolateRoadTangent(double s);
 };
 
 

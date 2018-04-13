@@ -6,6 +6,7 @@
 #define PATH_PLANNING_MAP_DATA_HPP
 
 #include <vector>
+#include <tuple>
 
 class MapData
 {
@@ -16,6 +17,8 @@ public:
     std::vector<double> waypoints_dx;
     std::vector<double> waypoints_dy;
     double max_s;
+
+    std::tuple<double, double> InterpolateRoadTangent(double s) const;
 };
 
 #endif //PATH_PLANNING_MAP_DATA_HPP
