@@ -8,6 +8,9 @@
 #include <cassert>
 #include <iostream>
 #include <numeric>
+#include <map>
+#include <functional>
+#include <thread>
 
 #include "path_planner.hpp"
 #include "utilities.hpp"
@@ -15,6 +18,12 @@
 using std::vector;
 using std::move;
 using std::numeric_limits;
+using std::tie;
+using std::map;
+using std::tuple;
+using std::function;
+using std::get;
+using namespace std::this_thread;
 
 const size_t n_states = 5;
 const char* states[n_states] = {
@@ -27,9 +36,9 @@ const char* states[n_states] = {
 
 static const int transitions[n_states][n_states] {
     {0, 1, 0, 0, 0},
-    {0, 1, 1, 1, 0},
-    {0, 1, 1, 0, 0},
-    {0, 1, 0, 1, 0},
+    {0, 1, 1, 1, 1},
+    {0, 1, 1, 0, 1},
+    {0, 1, 0, 1, 1},
     {0, 1, 0, 0, 1}
 
 };
@@ -37,10 +46,9 @@ static const int transitions[n_states][n_states] {
 static const double LANE_WIDTH = 4.0;
 static const double FOLLOW_DISTANCE = 15.0;
 static const double CAR_LENGTH = 5.0;
-static const double CAR_WIDTH = 3.2;
+static const double CAR_WIDTH = 2.5;
 
-static bool debug_cost = false;
-
+//#define DEBUG_COST
 
 vector<uint8_t> SuccessorStates(size_t state) {
     vector<uint8_t> states{};
@@ -62,6 +70,10 @@ Path PathPlanner::PlanPath()
 {
     lane_actual = lround((vehicle_state.d - LANE_WIDTH / 2) / LANE_WIDTH);
 
+    #ifdef DEBUG_COST
+    printf("\033c");
+    printf("\033[%d;%dH", 0, 0);
+
     printf("PlanPath()\n%s: lane_actual %ld lane_current %ld lane_target %ld speed_target %f\n",
            states[planner_state],
            lane_actual,
@@ -69,6 +81,7 @@ Path PathPlanner::PlanPath()
            current_plan.lane_target,
            current_plan.speed_target
     );
+    #endif
 
     auto candidate_states = SuccessorStates(planner_state);
     std::vector<double> cost_list(candidate_states.size(), std::numeric_limits<float>::infinity());
@@ -77,11 +90,16 @@ Path PathPlanner::PlanPath()
     {
         auto plan = GeneratePlanForState(candidate_states[i]);
         if(!plan.path.x.empty()) {
-            debug_cost = true;
+            #ifdef DEBUG_COST
             printf("PLAN %s\n", states[candidate_states[i]]);
+            #endif
+
             cost_list[i] = CostForTrajectory(plan);
+
+            #ifdef DEBUG_COST
             printf("TOTAL: %f\n", cost_list[i]);
-            debug_cost = false;
+            #endif
+
             plan_list[i] = move(plan);
         }
     }
@@ -95,15 +113,6 @@ Path PathPlanner::PlanPath()
         }
     }
     auto next_state = candidate_states[minimum_i];
-
-//    if (next_state != planner_state)
-//    {
-//        printf("%s: lane_target %ld speed_target %f\n",
-//               states[next_state],
-//               plan_list[minimum_i].lane_target,
-//               plan_list[minimum_i].speed_target
-//        );
-//    }
 
     planner_state = next_state;
     current_plan = plan_list[minimum_i];
@@ -185,8 +194,10 @@ PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
                                            mapData.waypoints_x,
                                            mapData.waypoints_y);
 
-    auto vx_final = -speed_final * mapData.waypoints_dy[last_waypoint_i];
-    auto vy_final = speed_final * mapData.waypoints_dx[last_waypoint_i];
+    double tx, ty;
+    tie(tx, ty) = mapData.InterpolateRoadTangent(s_final);
+    double vx_final = tx * speed_final;
+    double vy_final = ty * speed_final;
 
     auto x_curve = JerkMinimalTrajectory({x_initial, vx_initial, ax_initial},
                                     {x_final, vx_final, ay_initial},
@@ -232,33 +243,39 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
 {
     long lane;
     double speed;
+    double t;
     if (state == 1)  // FOLLOW
     {
         lane = lane_actual;
         speed = SafeSpeedForLane(lane);
+        t = 1.0;
     }
     else if(state == 2) // CHANGE_LEFT
     {
         lane = lane_actual - 1;
         speed = SafeSpeedForLane(lane);
+        t = 1.5;
     }
     else if(state == 3)  // CHANGE_RIGHT
     {
         lane = lane_actual + 1;
         speed = SafeSpeedForLane(lane);
+        t = 1.5;
+
     }
     else  // EMERGENCY_STOP
     {
         assert(state == 4);
         lane = lane_actual;
         speed = 0;
+        t = 2.5;
+
     }
 
-    double t_final = 1.0;
-    double s_final = vehicle_state.s + speed * t_final;
+    double s_final = vehicle_state.s + speed * t;
     double d_final = LANE_WIDTH / 2 + lane * LANE_WIDTH;
     return {
-        GenerateTrajectory(t_final, s_final, d_final, speed),
+        GenerateTrajectory(t, s_final, d_final, speed),
         lane_actual,
         lane,
         speed
@@ -305,29 +322,43 @@ double keep_right(long current, long target) {
 
 double PathPlanner::CostForTrajectory(const Plan& plan) const
 {
-    double speed_cost = 1 - plan.speed_target / speed_limit;
+    // If the speed difference is speed_margin the cost is 1.
+    double speed_margin = 5.0;
 
-    double valid_lane = valid_lane_cost(plan.lane_target);
-
-    double car_avoidance_cost = CarAvoidanceCost(plan.path) * 1.0;
-
-    vector<double> costs = {
-        4.0 * speed_cost,
-        100000 * valid_lane,
-        0.8 * keep_right(plan.lane_current, plan.lane_target),
-        2.0 * car_avoidance_cost,
-        1 - exp(-abs(2 * lane_actual - plan.lane_current - plan.lane_target))
+    static const map<const char*, tuple<double, function<double(const Plan&)> > > components {
+        {"speed cost", { 3.0, [=](const Plan& plan) {
+            return fmax(0, speed_limit - plan.speed_target) / speed_margin;
+        }}},
+        {"valid lane", { 100000.0, [=](const Plan& plan) {
+            return valid_lane_cost(plan.lane_target);
+        }}},
+        {"keep right", { 1.5, [=](const Plan& plan) {
+            return keep_right(plan.lane_current, plan.lane_target);
+        }}},
+        {"car avoidance", { 3.0, [=](const Plan& plan) {
+            return CarAvoidanceCost(plan.path);
+        }}},
+        {"lane change", { 1.0, [=](const Plan& plan) {
+            return abs(2 * lane_actual - plan.lane_current - plan.lane_target);
+        }}}
     };
 
-    if (debug_cost) {
-        std::cout << "costs:\n";
-        for (auto&& item : costs)
-        {
-            std::cout << item << '\n';
-        }
+
+    double cost_total = 0.0;
+    for (auto&& item : components)
+    {
+        const char* name = item.first;
+        double weight = get<0>(item.second);
+        function<double(const Plan&)> cost_fn = get<1>(item.second);
+        double cost = cost_fn(plan);
+        cost_total += weight * cost;
+
+        #ifdef DEBUG_COST
+        printf("%15s: base %f weighted %f\n", name, cost, cost * weight);
+        #endif
     }
 
-    return std::accumulate(costs.begin(), costs.end(), 0.0);
+    return cost_total;
 }
 
 size_t PathPlanner::FindCarToFollow(long lane) const
@@ -362,21 +393,6 @@ double PathPlanner::CarAvoidanceCost(const Path& path) const
 
 double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_id) const
 {
-//    assert(CarPotential(0, 0, 0, 0, 0, 0, 0, 0) == 1.0);
-//    assert(CarPotential(0, 0, 0, 0, 0, 0, 1, 1) == 1.0);
-//
-//    assert(CarPotential( LANE_WIDTH, 0, 0, 0, 0, 0, 0, 1) == 0.0);
-//    assert(CarPotential(-LANE_WIDTH, 0, 0, 0, 0, 0, 0, 1) == 0.0);
-//
-//    assert(CarPotential( LANE_WIDTH / 2, 0, 0, 0, 0, 0, 0, 1) == 1.0);
-//    assert(CarPotential(-LANE_WIDTH / 2, 0, 0, 0, 0, 0, 0, 1) == 1.0);
-//
-//    assert(CarPotential(0, LANE_WIDTH, 0, 0, 0, 0, 0, 1) == 1.0);
-//    assert(CarPotential(0, LANE_WIDTH, 0, 0, 0, 0, 0, 1) == 1.0);
-//
-//    assert(CarPotential(0,  FOLLOW_DISTANCE, 0, 0, 0, 0, 0, 1) == 0.0);
-//    assert(CarPotential(0, -FOLLOW_DISTANCE, 0, 0, 0, 0, 0, 1) == 0.0);
-
     double cost = 0;
     double t = path.x.size() * dt;
     double car_speed = sqrt(pow(sensorFusionData.vx[car_id], 2)
@@ -467,7 +483,7 @@ double PathPlanner::SoftCarPotential(double x, double y,
     double lateral = (dy * car_vx - dx * car_vy) / car_rv;
 
     return exp(-(pow(lateral / CAR_WIDTH, 2)
-                 + pow(forward / CAR_LENGTH, 2)));
+                 + pow(forward / FOLLOW_DISTANCE, 2)));
 }
 
 #include "catch.hpp"
