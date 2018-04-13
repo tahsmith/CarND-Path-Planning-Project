@@ -44,7 +44,7 @@ static const int transitions[n_states][n_states] {
 };
 
 static const double LANE_WIDTH = 4.0;
-static const double FOLLOW_DISTANCE = 15.0;
+static const double FOLLOW_DISTANCE = 20.0;
 static const double CAR_LENGTH = 5.0;
 static const double CAR_WIDTH = 2.5;
 
@@ -332,10 +332,10 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
         {"valid lane", { 100000.0, [=](const Plan& plan) {
             return valid_lane_cost(plan.lane_target);
         }}},
-        {"keep right", { 1.5, [=](const Plan& plan) {
+        {"keep right", { 1.01, [=](const Plan& plan) {
             return keep_right(plan.lane_current, plan.lane_target);
         }}},
-        {"car avoidance", { 3.0, [=](const Plan& plan) {
+        {"car avoidance", { 4.0, [=](const Plan& plan) {
             return CarAvoidanceCost(plan.path);
         }}},
         {"lane change", { 1.0, [=](const Plan& plan) {
