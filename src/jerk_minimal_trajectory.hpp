@@ -13,9 +13,9 @@ public:
     Polynomial(std::initializer_list<double> coefficients);
     Polynomial(std::vector<double> coefficients);
 
-    double Evaluate(double x);
+    double Evaluate(double x) const;
 
-    Polynomial Differentiate();
+    Polynomial Differentiate() const;
 
 private:
     std::vector<double> coefficients;
