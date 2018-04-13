@@ -14,7 +14,7 @@ Polynomial::Polynomial(std::initializer_list<double> coefficients) :
     coefficients(begin(coefficients), end(coefficients))
 {}
 
-double Polynomial::Evaluate(double x)
+double Polynomial::Evaluate(double x) const
 {
     double sum = 0;
     double x_power = 1;
@@ -26,7 +26,7 @@ double Polynomial::Evaluate(double x)
     return sum;
 }
 
-Polynomial Polynomial::Differentiate()
+Polynomial Polynomial::Differentiate() const
 {
     vector<double> new_coefficients(coefficients.size() - 1, 0.0);
     for (int i = 1; i < coefficients.size(); ++i)

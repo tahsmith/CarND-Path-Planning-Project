@@ -58,7 +58,7 @@ public:
 
     const double speed_limit = 22.35 * 0.90;  //  22.35m s^-1 ~= 50 miles / hr
     const double dt;
-    const MapData mapData;
+    MapData mapData;
     VehicleState vehicle_state;
     uint8_t planner_state;
     Plan current_plan;
@@ -93,8 +93,6 @@ public:
                             double speed_final, double x_initial, double y_initial,
                             double vx_initial, double vy_initial, double ax_initial,
                             double ay_initial) const;
-
-    std::tuple<double, double> InterpolateRoadTangent(double s);
 };
 
 

@@ -64,7 +64,9 @@ PathPlanner::PathPlanner(double dt, MapData mapData) :
     mapData{std::move(mapData)},
     current_plan{{}, 2, 2, 0},
     planner_state{0}
-{}
+{
+    this->mapData.PrepareInterpolation();
+}
 
 Path PathPlanner::PlanPath()
 {
@@ -184,23 +186,17 @@ PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
                                 double vx_initial, double vy_initial,
                                 double ax_initial, double ay_initial) const
 {
-    auto xy_final = getXY(s_final, d_final, mapData.waypoints_s,
-                          mapData.waypoints_x, mapData.waypoints_y);
-
-    double x_final = xy_final[0];
-    double y_final = xy_final[1];
-
-    auto last_waypoint_i = ClosestWaypoint(x_final, y_final,
-                                           mapData.waypoints_x,
-                                           mapData.waypoints_y);
+    double x_final;
+    double y_final;
+    tie(x_final, y_final) = mapData.InterpolateRoadCoords(s_final, d_final);
 
     double tx, ty;
     tie(tx, ty) = mapData.InterpolateRoadTangent(s_final);
     double vx_final = tx * speed_final;
     double vy_final = ty * speed_final;
 
-    auto x_curve = JerkMinimalTrajectory({x_initial, vx_initial, ax_initial},
-                                    {x_final, vx_final, ay_initial},
+    auto x_curve = JerkMinimalTrajectory({x_initial, vx_initial, 0},
+                                    {x_final, vx_final, 0},
                                     t_final);
     auto y_curve = JerkMinimalTrajectory({y_initial, vy_initial, 0},
                                     {y_final, vy_final, 0},
