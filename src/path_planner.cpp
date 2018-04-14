@@ -44,10 +44,11 @@ static const int transitions[n_states][n_states] {
 };
 
 static const double LANE_WIDTH = 4.0;
-static const double FOLLOW_DISTANCE = 15.0;
+static const double FOLLOW_DISTANCE = 25.0;
 static const double CAR_LENGTH = 5.0;
 static const double CAR_WIDTH = 2.5;
 
+#define DEBUG_STATE
 //#define DEBUG_COST
 
 vector<uint8_t> SuccessorStates(size_t state) {
@@ -72,17 +73,37 @@ Path PathPlanner::PlanPath()
 {
     lane_actual = lround((vehicle_state.d - LANE_WIDTH / 2) / LANE_WIDTH);
 
-    #ifdef DEBUG_COST
+    #ifdef DEBUG_STATE
     printf("\033c");
     printf("\033[%d;%dH", 0, 0);
 
-    printf("PlanPath()\n%s: lane_actual %ld lane_current %ld lane_target %ld speed_target %f\n",
-           states[planner_state],
-           lane_actual,
-           current_plan.lane_current,
-           current_plan.lane_target,
-           current_plan.speed_target
+    printf("Planner state %s: lane_actual %ld lane_current %ld lane_target %ld speed_target %f\n",
+                 states[planner_state],
+                 lane_actual,
+                 current_plan.lane_current,
+                 current_plan.lane_target,
+                 current_plan.speed_target
     );
+
+    printf("Vehicle state: s %f d %f x %f y %f speed %f\n",
+           vehicle_state.s,
+           vehicle_state.d,
+           vehicle_state.x,
+           vehicle_state.y,
+           vehicle_state.speed
+    );
+
+    {
+        double x,y,dx,dy;
+        tie(x, y) = map_data.InterpolateRoadCoords(vehicle_state.s, vehicle_state.d);
+        tie(dx, dy) = map_data.InterpolateRoadTangent(vehicle_state.s);
+        printf("Road state: x %f y %f dx %f dy %f\n",
+               x,
+               y,
+               dx,
+               dy
+        );
+    }
     #endif
 
     auto candidate_states = SuccessorStates(planner_state);
@@ -154,6 +175,7 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
         double vx2_initial =
             (previous_path.x[2] - previous_path.x[1]) / dt;
         ax_initial = (vx2_initial - vx_initial) / dt;
+        vx_initial = (vx_initial + vx2_initial) / 2.0;
     }
     else
     {
@@ -166,6 +188,7 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
         double vy2_initial =
             (previous_path.y[2] - previous_path.y[1]) / dt;
         ay_initial = (vy2_initial - vy_initial) / dt;
+        vy_initial = (vy_initial + vy2_initial) / 2.0;
     }
     else
     {
@@ -242,7 +265,7 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
     double t;
     if (state == 1)  // FOLLOW
     {
-        lane = lane_actual;
+        lane = current_plan.lane_target;
         speed = SafeSpeedForLane(lane);
         t = 1.0;
     }
