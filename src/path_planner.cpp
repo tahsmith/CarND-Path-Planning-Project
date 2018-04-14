@@ -369,27 +369,21 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
     static const map<const char*, tuple<double, function<double(const Plan&)> > > components {
         {"speed cost", { 3.0, [=](const Plan& plan) {
             return fmax(0, speed_limit - plan.speed_target) / speed_margin;
-        }}},
-        {"valid lane", { 1e6, [=](const Plan& plan) {
+        }}}
+        , {"valid lane", { 1e6, [=](const Plan& plan) {
             return valid_lane_cost(plan.lane_target);
-        }}},
-        {"keep right", { 1.01, [=](const Plan& plan) {
+        }}}
+        , {"keep right", { 1.01, [=](const Plan& plan) {
             return keep_right(plan.lane_current, plan.lane_target);
-        }}},
-        {"car avoidance", { 5.0, [=](const Plan& plan) {
+        }}}
+        , {"car avoidance", { 5.0, [=](const Plan& plan) {
             return CarAvoidanceCost(plan.path);
-        }}},
-        {"lane change", { 1.0, [=](const Plan& plan) {
+        }}}
+        , {"lane change", { 1.0, [=](const Plan& plan) {
             return abs(2 * lane_actual - plan.lane_current - plan.lane_target);
-        }}},
-        {"smoothness", { 1.0, [=](const Plan& plan) {
-            return smoothness_cost(plan.path, dt, 10.0);
-        }}},
-        {"speed limit", { 1.0, [=](const Plan& plan) {
+        }}}
+        , {"speed limit", { 1.0, [=](const Plan& plan) {
             return speed_limit_cost(plan.path, hard_speed_limit);
-        }}},
-        {"speed change", { 1.0, [=](const Plan& plan) {
-            return fabs(vehicle_state.speed - plan.speed_target) / (10.0 * dt * plan.path.x.size());
         }}}
     };
 
