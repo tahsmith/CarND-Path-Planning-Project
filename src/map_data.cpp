@@ -70,10 +70,19 @@ vector<Polynomial> GeneratePolys(vector<double> point_list) {
         // Not necessarily a "velocity", just a tangent.
         double v1 = x1 - x0;
         double a = v1 - v0;
-        v0 = v1;
         Polynomial poly = JerkMinimalTrajectory({x0, v0, a}, {x1, v1, a}, 1.0);
         poly_list.push_back(move(poly));
+        v0 = v1;
     }
+
+    double x0 = point_list[point_list.size() - 1];
+    double x1 = point_list[0];
+
+    // Not necessarily a "velocity", just a tangent.
+    double v1 = x1 - x0;
+    double a = v1 - v0;
+    Polynomial poly = JerkMinimalTrajectory({x0, v0, a}, {x1, v1, a}, 1.0);
+    poly_list.push_back(move(poly));
 
     return poly_list;
 }
