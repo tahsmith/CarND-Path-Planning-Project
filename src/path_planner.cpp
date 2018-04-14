@@ -49,13 +49,15 @@ static const double CAR_LENGTH = 5.0;
 static const double CAR_WIDTH = 2.5;
 
 #define DEBUG_STATE
-//#define DEBUG_COST
+#define DEBUG_COST
 
 vector<uint8_t> SuccessorStates(size_t state) {
     vector<uint8_t> states{};
     for(size_t i = 0; i < n_states; ++i) {
         if(transitions[state][i])
-        states.push_back(i);
+        {
+            states.push_back(i);
+        }
     }
     return states;
 }
@@ -339,6 +341,28 @@ double keep_right(long current, long target) {
     }
 }
 
+double smoothness_cost(const Path& path, double dt, double a_max) {
+    assert(path.vx.size() == path.vy.size());
+    assert(path.vx.size() > 0);
+
+    double cost_total = 0;
+
+    double vx0 = path.vx[0];
+    double vy0 = path.vy[0];
+
+    for (size_t i = 1; i < path.vx.size(); ++i) {
+        double vx1 = path.vx[i];
+        double vy1 = path.vy[i];
+
+        double a = distance(vx0, vy0, vx1, vy1) / dt;
+        cost_total += a / a_max;
+
+        vx0 = vx1;
+        vy0 = vy1;
+    }
+    return cost_total / path.vx.size();
+}
+
 double PathPlanner::CostForTrajectory(const Plan& plan) const
 {
     // If the speed difference is speed_margin the cost is 1.
@@ -359,6 +383,9 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
         }}},
         {"lane change", { 1.0, [=](const Plan& plan) {
             return abs(2 * lane_actual - plan.lane_current - plan.lane_target);
+        }}},
+        {"smoothness ", { 0.1, [=](const Plan& plan) {
+            return smoothness_cost(plan.path, dt, 9.0);
         }}}
     };
 
