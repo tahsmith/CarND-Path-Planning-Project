@@ -25,7 +25,14 @@ tuple<size_t, double> MapData::InterpolationPoint(double s) const
     }
 
     double s0 = waypoints_s[i - 1];
-    double s1 = waypoints_s[i];
+    double s1;
+    if (i == waypoints_s.size())
+    {
+        s1 = max_s;
+    }
+    else {
+        s1 = waypoints_s[i];;
+    }
 
     double l = (s - s0) / (s1 - s0);
 
