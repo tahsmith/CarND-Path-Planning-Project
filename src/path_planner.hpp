@@ -56,7 +56,8 @@ public:
     Path PlanPath();
 
 
-    const double speed_limit = 22.35 * 0.90;  //  22.35m s^-1 ~= 50 miles / hr
+    const double hard_speed_limit = 22.35;
+    const double speed_limit = hard_speed_limit * 0.90;  //  22.35m s^-1 ~= 50 miles / hr
     const double dt;
     MapData map_data;
     VehicleState vehicle_state;
