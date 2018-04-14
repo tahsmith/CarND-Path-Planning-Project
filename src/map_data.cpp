@@ -61,28 +61,25 @@ tuple<double, double> MapData::InterpolateRoadCoords(double s, double d) const
 
 vector<Polynomial> GeneratePolys(vector<double> point_list) {
     vector<Polynomial> poly_list;
+    auto n_points = point_list.size();
+    double x0 = point_list[n_points - 1];
+    double x1;
+    double x2;
+    double x3;
 
-    double v0 = point_list[0] - point_list[point_list.size()];
-    for(long i = 0; i < point_list.size() - 1; ++i) {
-        double x0 = point_list[i];
-        double x1 = point_list[i + 1];
+    for(long i = 0; i < n_points; ++i) {
+        x1 = point_list[i];
+        x2 = point_list[(i + 1) % n_points];
+        x3 = point_list[(i + 2) % n_points];
 
         // Not necessarily a "velocity", just a tangent.
-        double v1 = x1 - x0;
+        double v0 = (x2 - x0) / 2.0;
+        double v1 = (x3 - x1) / 2.0;
         double a = v1 - v0;
-        Polynomial poly = JerkMinimalTrajectory({x0, v0, a}, {x1, v1, a}, 1.0);
+        Polynomial poly = JerkMinimalTrajectory({x1, v0, a}, {x2, v1, a}, 1.0);
         poly_list.push_back(move(poly));
-        v0 = v1;
+        x0 = x1;
     }
-
-    double x0 = point_list[point_list.size() - 1];
-    double x1 = point_list[0];
-
-    // Not necessarily a "velocity", just a tangent.
-    double v1 = x1 - x0;
-    double a = v1 - v0;
-    Polynomial poly = JerkMinimalTrajectory({x0, v0, a}, {x1, v1, a}, 1.0);
-    poly_list.push_back(move(poly));
 
     return poly_list;
 }
