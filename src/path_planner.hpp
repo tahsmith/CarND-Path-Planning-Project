@@ -58,14 +58,14 @@ public:
 
     const double speed_limit = 22.35 * 0.90;  //  22.35m s^-1 ~= 50 miles / hr
     const double dt;
-    MapData mapData;
+    MapData map_data;
     VehicleState vehicle_state;
     uint8_t planner_state;
     Plan current_plan;
     long lane_actual;
-    SensorFusionData sensorFusionData;
+    SensorFusionData sensor_fusion_data;
 
-    Path previousPath;
+    Path previous_path;
 
     Path
     GenerateTrajectory(double t_final, double s_final, double d_final,

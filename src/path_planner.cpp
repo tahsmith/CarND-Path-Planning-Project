@@ -44,7 +44,7 @@ static const int transitions[n_states][n_states] {
 };
 
 static const double LANE_WIDTH = 4.0;
-static const double FOLLOW_DISTANCE = 20.0;
+static const double FOLLOW_DISTANCE = 15.0;
 static const double CAR_LENGTH = 5.0;
 static const double CAR_WIDTH = 2.5;
 
@@ -61,11 +61,11 @@ vector<uint8_t> SuccessorStates(size_t state) {
 
 PathPlanner::PathPlanner(double dt, MapData mapData) :
     dt(dt),
-    mapData{std::move(mapData)},
+    map_data{std::move(mapData)},
     current_plan{{}, 2, 2, 0},
     planner_state{0}
 {
-    this->mapData.PrepareInterpolation();
+    this->map_data.PrepareInterpolation();
 }
 
 Path PathPlanner::PlanPath()
@@ -125,9 +125,9 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
                                      double speed_final) const
 {
     double x_initial;
-    if (!previousPath.x.empty())
+    if (!previous_path.x.empty())
     {
-        x_initial = previousPath.x.front();
+        x_initial = previous_path.x.front();
     }
     else
     {
@@ -135,9 +135,9 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
     }
 
     double y_initial;
-    if (!previousPath.y.empty())
+    if (!previous_path.y.empty())
     {
-        y_initial = previousPath.y.front();
+        y_initial = previous_path.y.front();
     }
     else
     {
@@ -148,11 +148,11 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
     double vy_initial;
     double ax_initial;
     double ay_initial;
-    if (previousPath.x.size() > 2)
+    if (previous_path.x.size() > 2)
     {
-        vx_initial = (previousPath.x[1] - previousPath.x[0]) / dt;
+        vx_initial = (previous_path.x[1] - previous_path.x[0]) / dt;
         double vx2_initial =
-            (previousPath.x[2] - previousPath.x[1]) / dt;
+            (previous_path.x[2] - previous_path.x[1]) / dt;
         ax_initial = (vx2_initial - vx_initial) / dt;
     }
     else
@@ -160,11 +160,11 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
         vx_initial = 0;
         ax_initial = 0;
     }
-    if (previousPath.y.size() > 2)
+    if (previous_path.y.size() > 2)
     {
-        vy_initial = (previousPath.y[1] - previousPath.y[0]) / dt;
+        vy_initial = (previous_path.y[1] - previous_path.y[0]) / dt;
         double vy2_initial =
-            (previousPath.y[2] - previousPath.y[1]) / dt;
+            (previous_path.y[2] - previous_path.y[1]) / dt;
         ay_initial = (vy2_initial - vy_initial) / dt;
     }
     else
@@ -188,10 +188,10 @@ PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
 {
     double x_final;
     double y_final;
-    tie(x_final, y_final) = mapData.InterpolateRoadCoords(s_final, d_final);
+    tie(x_final, y_final) = map_data.InterpolateRoadCoords(s_final, d_final);
 
     double tx, ty;
-    tie(tx, ty) = mapData.InterpolateRoadTangent(s_final);
+    tie(tx, ty) = map_data.InterpolateRoadTangent(s_final);
     double vx_final = tx * speed_final;
     double vy_final = ty * speed_final;
 
@@ -227,12 +227,12 @@ void PathPlanner::UpdateLocalisation(VehicleState state)
 
 void PathPlanner::UpdateSensorFusion(SensorFusionData sensorFusionData)
 {
-    this->sensorFusionData = std::move(sensorFusionData);
+    this->sensor_fusion_data = std::move(sensorFusionData);
 }
 
 void PathPlanner::UpdateHistory(Path previousPath)
 {
-    this->previousPath = std::move(previousPath);
+    this->previous_path = std::move(previousPath);
 }
 
 Plan PathPlanner::GeneratePlanForState(uint8_t state) const
@@ -282,15 +282,15 @@ double PathPlanner::SafeSpeedForLane(long lane) const
 {
     auto car_in_front = FindCarToFollow(lane);
     double speed;
-    if ((car_in_front != sensorFusionData.id.size())
-        && (abs(sensorFusionData.s[car_in_front] - vehicle_state.s) <
+    if ((car_in_front != sensor_fusion_data.id.size())
+        && (abs(sensor_fusion_data.s[car_in_front] - vehicle_state.s) <
            FOLLOW_DISTANCE))
     {
         speed = sqrt(
-            sensorFusionData.vx[car_in_front] *
-            sensorFusionData.vx[car_in_front]
-            + sensorFusionData.vy[car_in_front] *
-              sensorFusionData.vy[car_in_front]);
+            sensor_fusion_data.vx[car_in_front] *
+            sensor_fusion_data.vx[car_in_front]
+            + sensor_fusion_data.vy[car_in_front] *
+              sensor_fusion_data.vy[car_in_front]);
     }
     else
     {
@@ -331,7 +331,7 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
         {"keep right", { 1.01, [=](const Plan& plan) {
             return keep_right(plan.lane_current, plan.lane_target);
         }}},
-        {"car avoidance", { 4.0, [=](const Plan& plan) {
+        {"car avoidance", { 5.0, [=](const Plan& plan) {
             return CarAvoidanceCost(plan.path);
         }}},
         {"lane change", { 1.0, [=](const Plan& plan) {
@@ -359,16 +359,16 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
 
 size_t PathPlanner::FindCarToFollow(long lane) const
 {
-    auto closest = sensorFusionData.id.size();
+    auto closest = sensor_fusion_data.id.size();
     double closest_s = numeric_limits<double>::infinity();
     double d = LANE_WIDTH / 2 + lane * LANE_WIDTH;
-    for (size_t i = 0; i < sensorFusionData.id.size(); ++i)
+    for (size_t i = 0; i < sensor_fusion_data.id.size(); ++i)
     {
-        if (abs(sensorFusionData.d[i] - d) < LANE_WIDTH / 2) {
-            if (sensorFusionData.s[i] > vehicle_state.s) {
-                if (sensorFusionData.s[i] < closest_s) {
+        if (abs(sensor_fusion_data.d[i] - d) < LANE_WIDTH / 2) {
+            if (sensor_fusion_data.s[i] > vehicle_state.s) {
+                if (sensor_fusion_data.s[i] < closest_s) {
                     closest = i;
-                    closest_s = sensorFusionData.s[i];
+                    closest_s = sensor_fusion_data.s[i];
                 }
             }
         }
@@ -380,25 +380,25 @@ size_t PathPlanner::FindCarToFollow(long lane) const
 double PathPlanner::CarAvoidanceCost(const Path& path) const
 {
     double cost = 0;
-    for (size_t i = 0; i < sensorFusionData.id.size(); i++)
+    for (size_t i = 0; i < sensor_fusion_data.id.size(); i++)
     {
         cost += CarAvoidanceCostPerCar(path, i);
     }
-    return cost / sensorFusionData.id.size();
+    return cost / sensor_fusion_data.id.size();
 }
 
 double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_id) const
 {
     double cost = 0;
     double t = path.x.size() * dt;
-    double car_speed = sqrt(pow(sensorFusionData.vx[car_id], 2)
-                            + pow(sensorFusionData.vy[car_id], 2));
-    double d_car = sensorFusionData.d[car_id];
+    double car_speed = sqrt(pow(sensor_fusion_data.vx[car_id], 2)
+                            + pow(sensor_fusion_data.vy[car_id], 2));
+    double d_car = sensor_fusion_data.d[car_id];
 
     auto car_path = GenerateTrajectory(
-        t, sensorFusionData.s[car_id] + car_speed + t, d_car, car_speed,
-        sensorFusionData.x[car_id], sensorFusionData.y[car_id],
-        sensorFusionData.vx[car_id], sensorFusionData.vy[car_id],
+        t, sensor_fusion_data.s[car_id] + car_speed + t, d_car, car_speed,
+        sensor_fusion_data.x[car_id], sensor_fusion_data.y[car_id],
+        sensor_fusion_data.vx[car_id], sensor_fusion_data.vy[car_id],
         0.0, 0.0
     );
 
