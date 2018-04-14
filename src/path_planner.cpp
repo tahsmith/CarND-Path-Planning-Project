@@ -25,22 +25,24 @@ using std::function;
 using std::get;
 using namespace std::this_thread;
 
-const size_t n_states = 5;
+const size_t n_states = 6;
 const char* states[n_states] = {
     "START",
-    "FOLLOW",
+    "SPEED_UP",
+    "SLOW_DOWN",
+    "CRUISE",
     "CHANGE_LEFT",
-    "CHANGE_RIGHT",
-    "EMERGENCY_STOP"
+    "CHANGE_RIGHT"
 };
 
 static const int transitions[n_states][n_states] {
-    {0, 1, 0, 0, 0},
-    {0, 1, 1, 1, 1},
-    {0, 1, 1, 0, 1},
-    {0, 1, 0, 1, 1},
-    {0, 1, 0, 0, 1}
-
+/* from \ to    *  START SPEED_UP SLOW_DOW CRUISE CHANGE_LEFT CHANGE_RIGHT */
+/* START        */ {0,   1,       0,       0,     0,          0},
+/* SPEED_UP     */ {0,   1,       0,       1,     0,          0},
+/* SLOW_DOWN    */ {0,   0,       1,       1,     0,          0},
+/* CRUISE       */ {0,   1,       1,       1,     1,          1},
+/* CHANGE_LEFT  */ {0,   0,       0,       1,     1,          0},
+/* CHANGE_RIGHT */ {0,   0,       0,       1,     0,          1}
 };
 
 static const double LANE_WIDTH = 4.0;
@@ -48,7 +50,7 @@ static const double FOLLOW_DISTANCE = 15.0;
 static const double CAR_LENGTH = 5.0;
 static const double CAR_WIDTH = 2.5;
 
-//#define DEBUG_COST
+#define DEBUG_COST
 
 vector<uint8_t> SuccessorStates(size_t state) {
     vector<uint8_t> states{};
@@ -238,43 +240,52 @@ void PathPlanner::UpdateHistory(Path previousPath)
 Plan PathPlanner::GeneratePlanForState(uint8_t state) const
 {
     long lane;
-    double speed;
+    double speed_final;
     double t;
-    if (state == 1)  // FOLLOW
+    double safe_acc = 5.0;
+    if (state == 1)
     {
+        assert(strcmp(states[state], "SPEED_UP") == 0);
         lane = lane_actual;
-        speed = SafeSpeedForLane(lane);
+        t = 1.0;
+        speed_final = current_plan.speed_target + safe_acc * t;
+    }
+    else if(state == 2)
+    {
+        assert(strcmp(states[state], "SLOW_DOWN") == 0);
+        lane = lane_actual - 1;
+        t = 1.0;
+        speed_final = current_plan.speed_target - safe_acc * t;
+    }
+    else if(state == 3)
+    {
+        assert(strcmp(states[state], "CRUISE") == 0);
+        lane = lane_actual;
+        speed_final = SafeSpeedForLane(lane);
         t = 1.0;
     }
-    else if(state == 2) // CHANGE_LEFT
+    else if(state == 4)
     {
+        assert(strcmp(states[state], "CHANGE_LEFT") == 0);
         lane = lane_actual - 1;
-        speed = SafeSpeedForLane(lane);
+        speed_final = SafeSpeedForLane(lane);
         t = 1.5;
     }
-    else if(state == 3)  // CHANGE_RIGHT
+    else
     {
+        assert(strcmp(states[state], "CHANGE_RIGHT") == 0);
         lane = lane_actual + 1;
-        speed = SafeSpeedForLane(lane);
+        speed_final = SafeSpeedForLane(lane);
         t = 1.5;
-
-    }
-    else  // EMERGENCY_STOP
-    {
-        assert(state == 4);
-        lane = lane_actual;
-        speed = 0;
-        t = 2.5;
-
     }
 
-    double s_final = vehicle_state.s + speed * t;
+    double s_final = vehicle_state.s + speed_final * t;
     double d_final = LANE_WIDTH / 2 + lane * LANE_WIDTH;
     return {
-        GenerateTrajectory(t, s_final, d_final, speed),
+        GenerateTrajectory(t, s_final, d_final, speed_final),
         lane_actual,
         lane,
-        speed
+        speed_final
     };
 }
 
@@ -316,6 +327,40 @@ double keep_right(long current, long target) {
     }
 }
 
+double speed_limit_cost(const Path& path, double speed_limit) {
+    assert(path.vx.size() == path.vy.size());
+
+    double cost_total = 0;
+    for (size_t i = 0; i < path.vx.size(); ++i) {
+        double v = length(path.vx[i], path.vy[i]);
+        cost_total += fmax(0, exp(v - speed_limit) - 1);
+    }
+
+    return cost_total / path.vx.size();
+}
+
+double smoothness_cost(const Path& path, double dt, double a_max) {
+    assert(path.vx.size() == path.vy.size());
+    assert(path.vx.size() > 0);
+
+    double cost_total = 0;
+
+    double vx0 = path.vx[0];
+    double vy0 = path.vy[0];
+
+    for (size_t i = 1; i < path.vx.size(); ++i) {
+        double vx1 = path.vx[i];
+        double vy1 = path.vy[i];
+
+        double a = distance(vx0, vy0, vx1, vy1) / dt;
+        cost_total += fmax(0, exp(a - a_max) - 1);
+
+        vx0 = vx1;
+        vy0 = vy1;
+    }
+    return cost_total / path.vx.size();
+}
+
 double PathPlanner::CostForTrajectory(const Plan& plan) const
 {
     // If the speed difference is speed_margin the cost is 1.
@@ -325,7 +370,7 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
         {"speed cost", { 3.0, [=](const Plan& plan) {
             return fmax(0, speed_limit - plan.speed_target) / speed_margin;
         }}},
-        {"valid lane", { 100000.0, [=](const Plan& plan) {
+        {"valid lane", { 1e6, [=](const Plan& plan) {
             return valid_lane_cost(plan.lane_target);
         }}},
         {"keep right", { 1.01, [=](const Plan& plan) {
@@ -336,6 +381,15 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
         }}},
         {"lane change", { 1.0, [=](const Plan& plan) {
             return abs(2 * lane_actual - plan.lane_current - plan.lane_target);
+        }}},
+        {"smoothness", { 1.0, [=](const Plan& plan) {
+            return smoothness_cost(plan.path, dt, 10.0);
+        }}},
+        {"speed limit", { 1.0, [=](const Plan& plan) {
+            return speed_limit_cost(plan.path, hard_speed_limit);
+        }}},
+        {"speed change", { 1.0, [=](const Plan& plan) {
+            return fabs(vehicle_state.speed - plan.speed_target) / (10.0 * dt * plan.path.x.size());
         }}}
     };
 
