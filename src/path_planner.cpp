@@ -20,6 +20,7 @@ using std::move;
 using std::numeric_limits;
 using std::tie;
 using std::map;
+using std::min;
 using std::tuple;
 using std::function;
 using std::get;
@@ -47,8 +48,8 @@ static const int transitions[n_states][n_states] {
 
 static const double LANE_WIDTH = 4.0;
 static const double FOLLOW_DISTANCE = 25.0;
-static const double CAR_LENGTH = 5.0;
-static const double CAR_WIDTH = 2.5;
+static const double CAR_LENGTH = 7.0;
+static const double CAR_WIDTH = 3.5;
 
 #define DEBUG_STATE
 #define DEBUG_COST
@@ -67,7 +68,7 @@ vector<uint8_t> SuccessorStates(size_t state) {
 PathPlanner::PathPlanner(double dt, MapData mapData) :
     dt(dt),
     map_data{std::move(mapData)},
-    current_plan{{}, 2, 2, 0},
+    current_plan{{}, 1, 1, 0},
     planner_state{0}
 {
     this->map_data.PrepareInterpolation();
@@ -143,7 +144,24 @@ Path PathPlanner::PlanPath()
 
     planner_state = next_state;
     current_plan = plan_list[minimum_i];
-    return plan_list[minimum_i].path;
+
+
+
+    #ifdef DEBUG_COST
+    // Sanity checks
+//    auto vx = diff(current_plan.path.x, dt);
+//    auto vy = diff(current_plan.path.y, dt);
+//    auto ax = diff(vx, dt);
+//    auto ay = diff(vy, dt);
+//    auto jx = diff(ax, dt);
+//    auto jy = diff(ay, dt);
+//
+//    assert(all_of_list(vx, less_than(hard_speed_limit)));
+//    assert(all_of_list(vy, less_than(hard_speed_limit)));
+//    assert(all_of_list(ax, less_than(10.0)));
+//    assert(all_of_list(ay, less_than(10.0)));
+    #endif
+
 }
 
 Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
@@ -216,6 +234,11 @@ PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
     double x_final;
     double y_final;
     tie(x_final, y_final) = map_data.InterpolateRoadCoords(s_final, d_final);
+//    while (distance(x_initial, y_initial, x_final, y_final) / t_final > speed_final)
+//    {
+//        s_final -= 1.0;
+//        tie(x_final, y_final) = map_data.InterpolateRoadCoords(s_final, d_final);
+//    }
 
     double tx, ty;
     tie(tx, ty) = map_data.InterpolateRoadTangent(s_final);
@@ -276,6 +299,7 @@ void PathPlanner::UpdateLocalisation(VehicleState state)
 void PathPlanner::UpdateSensorFusion(SensorFusionData sensorFusionData)
 {
     this->sensor_fusion_data = std::move(sensorFusionData);
+    UpdateCarPaths();
 }
 
 void PathPlanner::UpdateHistory(Path previousPath)
@@ -314,18 +338,18 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
     {
         assert(strcmp(states[state], "CHANGE_LEFT") == 0);
         lane = lane_actual - 1;
-        speed_final = SafeSpeedForLane(lane);
+        speed_final = current_plan.speed_target;
         t = t_change;
     }
     else
     {
         assert(strcmp(states[state], "CHANGE_RIGHT") == 0);
         lane = lane_actual + 1;
-        speed_final = SafeSpeedForLane(lane);
+        speed_final = current_plan.speed_target;
         t = t_change;
     }
 
-    double s_final = vehicle_state.s + (vehicle_state.speed + speed_limit) * 0.5 * t;
+    double s_final = vehicle_state.s + (current_plan.speed_target + speed_final) * 0.5 * t;
     double d_final = LANE_WIDTH / 2 + lane * LANE_WIDTH;
     return {
         GenerateTrajectory(t, s_final, d_final, speed_final),
@@ -404,30 +428,33 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
     const double speed_margin = 5.0;
 
     static const map<const char*, tuple<double, function<double(const Plan&)> > > components {
-        {"speed cost", { 3.0, [=](const Plan& plan) {
-            return fmax(0, speed_limit - plan.speed_target) / speed_margin;
+        {"car collision", { 1e6, [=](const Plan& plan) {
+                return CarAvoidanceCost(plan.path);
+            }}}
+        , {"speed limit", { 1e6, [=](const Plan& plan) {
+            return speed_limit_cost(plan.path, hard_speed_limit);
         }}}
         , {"valid lane", { 1e6, [=](const Plan& plan) {
             return valid_lane_cost(plan.lane_target);
+        }}}
+        , {"smoothness ", { 1e3, [=](const Plan& plan) {
+            return smoothness_cost(plan.path, dt, 9.0);
+        }}}
+        , {"speed cost", { 3.0, [=](const Plan& plan) {
+            return fmax(0, speed_limit - plan.speed_target) / speed_margin;
         }}}
         , {"keep right", { 1.01, [=](const Plan& plan) {
             return keep_right(plan.lane_current, plan.lane_target);
         }}}
         , {"car avoidance", { 5.0, [=](const Plan& plan) {
-            return CarAvoidanceCost(plan.path);
+            return SoftCarAvoidanceCost(plan.path);
         }}}
         , {"lane change", { 1.0, [=](const Plan& plan) {
-            double fractional_lane = vehicle_state.d / 2.0 - 0.5;
+            double fractional_lane = vehicle_state.d / LANE_WIDTH - 0.5;
             return abs(2 * fractional_lane - plan.lane_current - plan.lane_target);
         }}}
-        , {"smoothness ", { 1.0, [=](const Plan& plan) {
-            return smoothness_cost(plan.path, dt, 9.0);
-        }}}
-        , {"speed limit", { 1e6, [=](const Plan& plan) {
-            return speed_limit_cost(plan.path, hard_speed_limit);
-        }}}
         , {"speed change", { 1.0, [=](const Plan& plan) {
-            return fabs(current_plan.speed_target - plan.speed_target) / 10.0;
+            return fabs(current_plan.speed_target - plan.speed_target) / (5.0 * t_straight);
         }}}
     };
 
@@ -479,34 +506,45 @@ double PathPlanner::CarAvoidanceCost(const Path& path) const
     return cost / sensor_fusion_data.id.size();
 }
 
-double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_id) const
+double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_paths_i) const
+{
+    double cost = 0.0;
+
+    size_t n_points = min(car_paths[car_paths_i].x.size(), path.x.size());
+
+    for (size_t i = 1; i < n_points; i++) {
+        cost += CarPotential(
+            path.x[i], path.y[i],
+            path.vx[i], path.vy[i],
+            car_paths[car_paths_i].x[i], car_paths[car_paths_i].y[i],
+            car_paths[car_paths_i].vx[i], car_paths[car_paths_i].vy[i]
+        );
+    }
+    return cost / path.x.size();
+}
+
+double PathPlanner::SoftCarAvoidanceCost(const Path& path) const
 {
     double cost = 0;
-    double t = path.x.size() * dt;
-    double car_speed = sqrt(pow(sensor_fusion_data.vx[car_id], 2)
-                            + pow(sensor_fusion_data.vy[car_id], 2));
-    double d_car = sensor_fusion_data.d[car_id];
+    for (size_t i = 0; i < sensor_fusion_data.id.size(); i++)
+    {
+        cost += SoftCarAvoidanceCostPerCar(path, i);
+    }
+    return cost / sensor_fusion_data.id.size();
+}
 
-    auto car_path = GenerateTrajectory(
-        t, sensor_fusion_data.s[car_id] + car_speed + t, d_car, car_speed,
-        sensor_fusion_data.x[car_id], sensor_fusion_data.y[car_id],
-        sensor_fusion_data.vx[car_id], sensor_fusion_data.vy[car_id],
-        0.0, 0.0
-    );
+double PathPlanner::SoftCarAvoidanceCostPerCar(const Path& path, size_t car_paths_i) const
+{
+    double cost = 0.0;
 
-    for (size_t i = 1; i < path.x.size(); i++) {
-        cost += 1000 * CarPotential(
+    size_t n_points = min(car_paths[car_paths_i].x.size(), path.x.size());
+
+    for (size_t i = 1; i < n_points; i++) {
+        cost += SoftCarPotential(
             path.x[i], path.y[i],
             path.vx[i], path.vy[i],
-            car_path.x[i], car_path.y[i],
-            car_path.vx[i], car_path.vy[i]
-        );
-
-        cost += 1.0 * SoftCarPotential(
-            path.x[i], path.y[i],
-            path.vx[i], path.vy[i],
-            car_path.x[i], car_path.y[i],
-            car_path.vx[i], car_path.vy[i]
+            car_paths[car_paths_i].x[i], car_paths[car_paths_i].y[i],
+            car_paths[car_paths_i].vx[i], car_paths[car_paths_i].vy[i]
         );
     }
     return cost / path.x.size();
@@ -572,6 +610,27 @@ double PathPlanner::SoftCarPotential(double x, double y,
 
     return exp(-(pow(lateral / CAR_WIDTH, 2)
                  + pow(forward / FOLLOW_DISTANCE, 2)));
+}
+
+void PathPlanner::UpdateCarPaths()
+{
+    vector<Path> car_paths{};
+    double t = t_straight;
+    for (size_t i = 0; i < sensor_fusion_data.id.size(); ++i) {
+        auto car_id = sensor_fusion_data.id[i];
+        double car_speed = sqrt(pow(sensor_fusion_data.vx[car_id], 2)
+                                + pow(sensor_fusion_data.vy[car_id], 2));
+        double d_car = sensor_fusion_data.d[car_id];
+
+        auto car_path = GenerateTrajectory(
+            t, sensor_fusion_data.s[car_id] + car_speed + t, d_car, car_speed,
+            sensor_fusion_data.x[car_id], sensor_fusion_data.y[car_id],
+            sensor_fusion_data.vx[car_id], sensor_fusion_data.vy[car_id],
+            0.0, 0.0
+        );
+        car_paths.push_back(move(car_path));
+    }
+    this->car_paths = move(car_paths);
 }
 
 #include "catch2/catch.hpp"

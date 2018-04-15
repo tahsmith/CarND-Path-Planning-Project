@@ -29,4 +29,35 @@ inline double distance(double x1, double y1, double x2, double y2)
     return length(x2 - x1, y2 - y1);
 }
 
+inline std::vector<double> diff(std::vector<double> x_list, double dt) {
+    std::vector<double> v_list{};
+    v_list.reserve(x_list.size() - 1);
+    for (size_t i = 0; i < x_list.size() - 1; ++i) {
+        double x0 = x_list[i];
+        double x1 = x_list[i + 1];
+        double v = (x1 - x0) / dt;
+        v_list.push_back(v);
+    }
+    return v_list;
+}
+
+template<typename L, typename Op>
+bool all_of_list(const L& l, const Op& op) {
+    for (auto&& x : l) {
+        if(!op(x)) {
+            return false;
+        }
+    }
+    return true;
+};
+
+template<typename T>
+std::function<bool(T)> less_than(T value) {
+    return [=] (const T& other) {
+        return other < value;
+    };
+}
+
+
+
 #endif //PATH_PLANNING_UTILITIES_HPP
