@@ -222,15 +222,34 @@ PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
     double vx_final = tx * speed_final;
     double vy_final = ty * speed_final;
 
-    auto x_curve = JerkMinimalTrajectory({x_initial, vx_initial, 0},
-                                    {x_final, vx_final, 0},
-                                    t_final);
-    auto y_curve = JerkMinimalTrajectory({y_initial, vy_initial, 0},
-                                    {y_final, vy_final, 0},
+    return InterpolatePath(t_final,
+                           x_initial, x_final,
+                           y_initial, y_final,
+                           vx_initial, vx_final,
+                           vy_initial, vy_final,
+                           ax_initial, 0,
+                           ay_initial, 0);
+
+}
+
+Path
+PathPlanner::InterpolatePath(double t_final, double x_initial, double x_final,
+                             double y_initial, double y_final, double vx_initial,
+                             double vx_final, double vy_initial, double vy_final,
+                             double ax_initial, double ax_final, double ay_initial,
+                             double ay_final) const
+{
+    auto x_curve = JerkMinimalTrajectory({x_initial, vx_initial, ax_initial},
+                                         {x_final, vx_final, ax_final},
+                                         t_final);
+    auto y_curve = JerkMinimalTrajectory({y_initial, vy_initial, ay_initial},
+                                    {y_final, vy_final, ay_final},
                                     t_final);
 
     auto vx_curve = x_curve.Differentiate();
     auto vy_curve = y_curve.Differentiate();
+    auto ax_curve = vx_curve.Differentiate();
+    auto ay_curve = vy_curve.Differentiate();
 
     Path path{};
     auto n_points = lround(floor(t_final / dt));
@@ -242,9 +261,11 @@ PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
         path.y.push_back(y_curve.Evaluate(t));
         path.vx.push_back(vx_curve.Evaluate(t));
         path.vy.push_back(vy_curve.Evaluate(t));
+        path.ax.push_back(ax_curve.Evaluate(t));
+        path.ay.push_back(ay_curve.Evaluate(t));
     }
 
-    return std::move(path);
+    return move(path);
 }
 
 void PathPlanner::UpdateLocalisation(VehicleState state)
@@ -272,14 +293,14 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
     {
         assert(strcmp(states[state], "SPEED_UP") == 0);
         lane = current_plan.lane_target;
-        t = 1.0;
+        t = t_straight;
         speed_final = current_plan.speed_target + safe_acc * t;
     }
     else if(state == 2)
     {
         assert(strcmp(states[state], "SLOW_DOWN") == 0);
         lane = current_plan.lane_target;
-        t = 1.0;
+        t = t_straight;
         speed_final = current_plan.speed_target - safe_acc * t;
     }
     else if(state == 3)
@@ -287,24 +308,24 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
         assert(strcmp(states[state], "CRUISE") == 0);
         lane = current_plan.lane_target;
         speed_final = SafeSpeedForLane(lane);
-        t = 1.0;
+        t = t_straight;
     }
     else if(state == 4)
     {
         assert(strcmp(states[state], "CHANGE_LEFT") == 0);
         lane = lane_actual - 1;
         speed_final = SafeSpeedForLane(lane);
-        t = 1.5;
+        t = t_change;
     }
     else
     {
         assert(strcmp(states[state], "CHANGE_RIGHT") == 0);
         lane = lane_actual + 1;
         speed_final = SafeSpeedForLane(lane);
-        t = 1.5;
+        t = t_change;
     }
 
-    double s_final = vehicle_state.s + speed_final * t;
+    double s_final = vehicle_state.s + (vehicle_state.speed + speed_limit) * 0.5 * t;
     double d_final = LANE_WIDTH / 2 + lane * LANE_WIDTH;
     return {
         GenerateTrajectory(t, s_final, d_final, speed_final),
@@ -365,23 +386,14 @@ double speed_limit_cost(const Path& path, double speed_limit) {
 }
 
 double smoothness_cost(const Path& path, double dt, double a_max) {
-    assert(path.vx.size() == path.vy.size());
-    assert(path.vx.size() > 0);
+    assert(path.ax.size() == path.ay.size());
+    assert(path.ax.size() > 0);
 
     double cost_total = 0;
 
-    double vx0 = path.vx[0];
-    double vy0 = path.vy[0];
-
     for (size_t i = 1; i < path.vx.size(); ++i) {
-        double vx1 = path.vx[i];
-        double vy1 = path.vy[i];
-
-        double a = distance(vx0, vy0, vx1, vy1) / dt;
+        double a = length(path.ax[i], path.ay[i]);
         cost_total += fmax(0.0, exp(a - a_max) - 1);
-
-        vx0 = vx1;
-        vy0 = vy1;
     }
     return cost_total / path.vx.size();
 }
@@ -407,11 +419,11 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
         , {"lane change", { 1.0, [=](const Plan& plan) {
             double fractional_lane = vehicle_state.d / 2.0 - 0.5;
             return abs(2 * fractional_lane - plan.lane_current - plan.lane_target);
-        }}},
-        {"smoothness ", { 0.5, [=](const Plan& plan) {
+        }}}
+        , {"smoothness ", { 1.0, [=](const Plan& plan) {
             return smoothness_cost(plan.path, dt, 9.0);
         }}}
-        , {"speed limit", { 0.5, [=](const Plan& plan) {
+        , {"speed limit", { 1e6, [=](const Plan& plan) {
             return speed_limit_cost(plan.path, hard_speed_limit);
         }}}
         , {"speed change", { 1.0, [=](const Plan& plan) {
@@ -588,120 +600,103 @@ TEST_CASE("Path costs") {
     PathPlanner planner{0.02, MapData{}};
     const double speed_limit = planner.speed_limit;
     const double hard_speed_limit = planner.hard_speed_limit;
-    double t_straight = 1.0;
-    double t_change = 1.5;
+    double t_straight = planner.t_straight;
+    double t_change = planner.t_change;
     double dt = planner.dt;
     SECTION("straight") {
-        auto x_curve = JerkMinimalTrajectory(
-            {0.0, speed_limit, 0.0},
-            {speed_limit * t_straight, speed_limit, 0.0},
-            t_straight
-            );
-        auto vx_curve = x_curve.Differentiate();
-
-        auto y_curve = JerkMinimalTrajectory(
-            {0.0, 0.0, 0.0},
-            {0.0, 0.0, 0.0},
-            t_straight
-        );
-        auto vy_curve = y_curve.Differentiate();
-
-
-        Path path{};
-        auto n_points = lround(floor(t_straight / dt));
-        for (size_t i = 0; i < n_points; ++i) {
-            path.x.push_back(x_curve.Evaluate(i * dt));
-            path.vx.push_back(vx_curve.Evaluate(i * dt));
-            path.y.push_back(y_curve.Evaluate(i * dt));
-            path.vy.push_back(vy_curve.Evaluate(i * dt));
-        }
+        auto path = planner.InterpolatePath(
+            t_straight,
+            0.0, speed_limit * t_straight,
+            0.0, 0.0,
+            speed_limit, speed_limit,
+            0.0, 0.0,
+            0.0, 0.0,
+            0.0, 0.0);
 
         REQUIRE(speed_limit_cost(path, hard_speed_limit) < 1.0);
+        REQUIRE(smoothness_cost(path, dt, 10.0) < 1.0);
+
+    }
+
+    SECTION("speed up") {
+        double v0 = 0.0;
+        double v1 = v0 + 5.0 * t_straight;
+        auto path = planner.InterpolatePath(
+            t_straight,
+            0.0, (v1 + v0) * 0.5 * t_straight,
+            0.0, 0.0,
+            v0, v1,
+            0.0, 0.0,
+            0.0, 0.0,
+            0.0, 0.0);
+
+        REQUIRE(speed_limit_cost(path, hard_speed_limit) < 1.0);
+        REQUIRE(smoothness_cost(path, dt, 10.0) < 1.0);
+
+    }
+
+    SECTION("slow down") {
+        double v0 = speed_limit;
+        double v1 = v0 - 5.0 * t_straight;
+        auto path = planner.InterpolatePath(
+            t_straight,
+            0.0, (v1 + v0) * 0.5 * t_straight,
+            0.0, 0.0,
+            v0, v1,
+            0.0, 0.0,
+            0.0, 0.0,
+            0.0, 0.0);
+
+        REQUIRE(speed_limit_cost(path, hard_speed_limit) < 1.0);
+        REQUIRE(smoothness_cost(path, dt, 10.0) < 1.0);
+
     }
 
     SECTION("left") {
-        auto x_curve = JerkMinimalTrajectory(
-            {0.0, speed_limit, 0.0},
-            {speed_limit * t_straight, speed_limit, 0.0},
-            t_change
+        auto path = planner.InterpolatePath(
+            t_change,
+            0.0, speed_limit * t_change,
+            0.0, -LANE_WIDTH,
+            speed_limit, speed_limit,
+            0.0, 0.0,
+            0.0, 0.0,
+            0.0, 0.0
         );
-        auto vx_curve = x_curve.Differentiate();
-
-        auto y_curve = JerkMinimalTrajectory(
-            {0.0, 0.0, 0.0},
-            {-LANE_WIDTH, 0.0, 0.0},
-            t_change
-        );
-        auto vy_curve = y_curve.Differentiate();
-
-
-        Path path{};
-        auto n_points = lround(floor(t_straight / dt));
-        for (size_t i = 0; i < n_points; ++i) {
-            path.x.push_back(x_curve.Evaluate(i * dt));
-            path.vx.push_back(vx_curve.Evaluate(i * dt));
-            path.y.push_back(y_curve.Evaluate(i * dt));
-            path.vy.push_back(vy_curve.Evaluate(i * dt));
-        }
-
         REQUIRE(speed_limit_cost(path, hard_speed_limit) < 1.0);
+        REQUIRE(smoothness_cost(path, dt, 10.0) < 1.0);
     }
 
     SECTION("right") {
-        auto x_curve = JerkMinimalTrajectory(
-            {0.0, speed_limit, 0.0},
-            {speed_limit * t_straight, speed_limit, 0.0},
-            t_change
-        );
-        auto vx_curve = x_curve.Differentiate();
-
-        auto y_curve = JerkMinimalTrajectory(
-            {0.0, 0.0, 0.0},
-            {LANE_WIDTH, 0.0, 0.0},
-            t_change
-        );
-        auto vy_curve = y_curve.Differentiate();
-
-
-        Path path{};
-        auto n_points = lround(floor(t_straight / dt));
-        for (size_t i = 0; i < n_points; ++i) {
-            path.x.push_back(x_curve.Evaluate(i * dt));
-            path.vx.push_back(vx_curve.Evaluate(i * dt));
-            path.y.push_back(y_curve.Evaluate(i * dt));
-            path.vy.push_back(vy_curve.Evaluate(i * dt));
-        }
+        auto path = planner.InterpolatePath(
+            t_change,
+            0.0, speed_limit * t_change,
+            0.0, LANE_WIDTH,
+            speed_limit, speed_limit,
+            0.0, 0.0,
+            0.0, 0.0,
+            0.0, 0.0
+            );
 
         REQUIRE(speed_limit_cost(path, hard_speed_limit) < 1.0);
+        REQUIRE(smoothness_cost(path, dt, 10.0) < 1.0);
+
     }
 
     SECTION("too fast") {
         auto too_fast = hard_speed_limit * 1.1;
-        auto x_curve = JerkMinimalTrajectory(
-            {0.0, speed_limit, 0.0},
-            {too_fast * t_straight, too_fast, 0.0},
-            t_change
+        auto path = planner.InterpolatePath(
+            t_straight,
+            0.0, too_fast * t_straight,
+            0.0, 0.0,
+            speed_limit, too_fast,
+            0.0, 0.0,
+            0.0, 0.0,
+            0.0, 0.0
         );
-        auto vx_curve = x_curve.Differentiate();
-
-        auto y_curve = JerkMinimalTrajectory(
-            {0.0, 0.0, 0.0},
-            {0.0, 0.0, 0.0},
-            t_change
-        );
-        auto vy_curve = y_curve.Differentiate();
-
-
-        Path path{};
-        auto n_points = lround(floor(t_straight / dt));
-        for (size_t i = 0; i < n_points; ++i) {
-            path.x.push_back(x_curve.Evaluate(i * dt));
-            path.vx.push_back(vx_curve.Evaluate(i * dt));
-            path.y.push_back(y_curve.Evaluate(i * dt));
-            path.vy.push_back(vy_curve.Evaluate(i * dt));
-        }
 
         REQUIRE(speed_limit_cost(path, hard_speed_limit) > 1.0);
+        REQUIRE(smoothness_cost(path, dt, 10.0) > 1.0);
+
     }
 
 }

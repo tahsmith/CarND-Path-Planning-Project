@@ -19,6 +19,8 @@ public:
     std::vector<double> y;
     std::vector<double> vx;
     std::vector<double> vy;
+    std::vector<double> ax;
+    std::vector<double> ay;
 };
 
 class Plan
@@ -58,6 +60,8 @@ public:
 
     const double hard_speed_limit = 22.35;
     const double speed_limit = hard_speed_limit * 0.90;  //  22.35m s^-1 ~= 50 miles / hr
+    const double t_straight = 1.0;
+    const double t_change = 1.5;
     const double dt;
     MapData map_data;
     VehicleState vehicle_state;
@@ -94,6 +98,12 @@ public:
                             double speed_final, double x_initial, double y_initial,
                             double vx_initial, double vy_initial, double ax_initial,
                             double ay_initial) const;
+
+    Path InterpolatePath(double t_final, double x_initial, double x_final,
+                             double y_initial, double y_final, double vx_initial,
+                             double vx_final, double vy_initial, double vy_final,
+                             double ax_initial, double ax_final, double ay_initial,
+                             double ay_final) const;
 };
 
 
