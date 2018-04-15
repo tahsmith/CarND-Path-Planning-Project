@@ -69,6 +69,9 @@ tuple<double, double> MapData::InterpolateRoadCoords(double s, double d) const
 vector<Polynomial> GeneratePolys(vector<double> point_list) {
     vector<Polynomial> poly_list;
     auto n_points = point_list.size();
+    if (n_points < 4) {
+        return {};
+    }
     double x0 = point_list[n_points - 1];
     double x1;
     double x2;
