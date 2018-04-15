@@ -60,7 +60,9 @@ JerkMinimalTrajectory(std::vector<double> initial, std::vector<double> final,
 
 }
 
-#include "catch.hpp"
+#include "catch2/catch.hpp"
+#include <random>
+
 
 TEST_CASE("Polynomial")
 {
@@ -73,6 +75,12 @@ TEST_CASE("Polynomial")
         REQUIRE(polynomial.Evaluate(1) == 0.0);
         REQUIRE(polynomial.Evaluate(0.5) == 0.25);
         REQUIRE(polynomial.Evaluate(2) == 1.0);
+
+        auto derivative = polynomial.Differentiate();
+
+        REQUIRE(derivative.Evaluate(0) == -2.0);
+        REQUIRE(derivative.Evaluate(1) == 0.0);
+        REQUIRE(derivative.Evaluate(2) == 2.0);
     }
 
     SECTION("-x^2 + 2x - 1")
@@ -84,6 +92,12 @@ TEST_CASE("Polynomial")
         REQUIRE(polynomial.Evaluate(1) == 0.0);
         REQUIRE(polynomial.Evaluate(0.5) == -0.25);
         REQUIRE(polynomial.Evaluate(2) == -1.0);
+
+        auto derivative = polynomial.Differentiate();
+
+        REQUIRE(derivative.Evaluate(0) == 2.0);
+        REQUIRE(derivative.Evaluate(1) == 0.0);
+        REQUIRE(derivative.Evaluate(2) == -2.0);
     }
 }
 
@@ -96,6 +110,12 @@ TEST_CASE("JerkMinimalTrajectory")
         REQUIRE(poly.Evaluate(0.0) == 0.0);
         REQUIRE(poly.Evaluate(0.5) == 0.0);
         REQUIRE(poly.Evaluate(1.0) == 0.0);
+
+        auto derivative = poly.Differentiate();
+
+        REQUIRE(derivative.Evaluate(0) == 0.0);
+        REQUIRE(derivative.Evaluate(1) == 0.0);
+        REQUIRE(derivative.Evaluate(2) == 0.0);
     }
 
     SECTION("1 -> 1")
@@ -105,6 +125,12 @@ TEST_CASE("JerkMinimalTrajectory")
         REQUIRE(poly.Evaluate(0.0) == Approx(1.0));
         REQUIRE(poly.Evaluate(0.5) == Approx(1.0));
         REQUIRE(poly.Evaluate(1.0) == Approx(1.0));
+
+        auto derivative = poly.Differentiate();
+
+        REQUIRE(derivative.Evaluate(0) == 0.0);
+        REQUIRE(derivative.Evaluate(0.5) == 0.0);
+        REQUIRE(derivative.Evaluate(1) == 0.0);
     }
 
     SECTION("0 -> 1")
@@ -114,6 +140,12 @@ TEST_CASE("JerkMinimalTrajectory")
         REQUIRE(poly.Evaluate(0.0) == Approx(0.0));
         REQUIRE(poly.Evaluate(0.5) == Approx(0.5));
         REQUIRE(poly.Evaluate(1.0) == Approx(1.0));
+
+        auto derivative = poly.Differentiate();
+
+        REQUIRE(derivative.Evaluate(0) == 0.0);
+        REQUIRE(derivative.Evaluate(0.5) > 0.0);
+        REQUIRE(derivative.Evaluate(1) == 0.0);
     }
 
     SECTION("1 -> 0")
@@ -122,6 +154,57 @@ TEST_CASE("JerkMinimalTrajectory")
                                           1.0);
         REQUIRE(poly.Evaluate(0.0) == 1.0);
         REQUIRE(poly.Evaluate(0.5) == Approx(0.5));
-        REQUIRE(poly.Evaluate(1.0) <= 1e-6);
+        REQUIRE((poly.Evaluate(1.0) + 1) == Approx(1.0));
+
+        auto derivative = poly.Differentiate();
+
+        REQUIRE(derivative.Evaluate(0) == 0.0);
+        REQUIRE(derivative.Evaluate(0.5) < 0.0);
+        REQUIRE(derivative.Evaluate(1) == 0.0);
+    }
+
+    SECTION("Constant velocity")
+    {
+        auto poly = JerkMinimalTrajectory({0.0, 1.0, 0.0}, {1.0, 1.0, 0.0},
+                                          1.0);
+        REQUIRE(poly.Evaluate(0.0) == 0.0);
+        REQUIRE(poly.Evaluate(0.5) == Approx(0.5));
+        REQUIRE(poly.Evaluate(1.0) == Approx(1.0));
+
+        auto derivative = poly.Differentiate();
+
+        REQUIRE(derivative.Evaluate(0) == Approx(1.0));
+        REQUIRE(derivative.Evaluate(0.5) == Approx(1.0));
+        REQUIRE(derivative.Evaluate(1) == Approx(1.0));
+    }
+
+    SECTION("Random")
+    {
+        for (size_t i = 0; i < 100; ++i)
+        {
+            std::uniform_real_distribution<double> rand{1.0, 100.0};
+            std::default_random_engine e{};
+            double x0 = rand(e);
+            double v0 = rand(e);
+            double a0 = rand(e);
+            double x1 = rand(e);
+            double v1 = rand(e);
+            double a1 = rand(e);
+            double t = rand(e);
+
+            auto x = JerkMinimalTrajectory({x0, v0, a0}, {x1, v1, a1},
+                                           t);
+
+            REQUIRE(x.Evaluate(0.0) == Approx(x0));
+            REQUIRE(x.Evaluate(t) == Approx(x1));
+
+            auto v = x.Differentiate();
+            REQUIRE(v.Evaluate(0.0) == Approx(v0));
+            REQUIRE(v.Evaluate(t) == Approx(v1));
+
+            auto a = v.Differentiate();
+            REQUIRE(a.Evaluate(0.0) == Approx(a0));
+            REQUIRE(a.Evaluate(t) == Approx(a1));
+        }
     }
 }
