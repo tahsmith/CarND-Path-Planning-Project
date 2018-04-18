@@ -162,6 +162,8 @@ Path PathPlanner::PlanPath()
 //    assert(all_of_list(ay, less_than(10.0)));
     #endif
 
+    return current_plan.path;
+
 }
 
 Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
@@ -234,11 +236,6 @@ PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
     double x_final;
     double y_final;
     tie(x_final, y_final) = map_data.InterpolateRoadCoords(s_final, d_final);
-//    while (distance(x_initial, y_initial, x_final, y_final) / t_final > speed_final)
-//    {
-//        s_final -= 1.0;
-//        tie(x_final, y_final) = map_data.InterpolateRoadCoords(s_final, d_final);
-//    }
 
     double tx, ty;
     tie(tx, ty) = map_data.InterpolateRoadTangent(s_final);
@@ -337,15 +334,15 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
     else if(state == 4)
     {
         assert(strcmp(states[state], "CHANGE_LEFT") == 0);
-        lane = lane_actual - 1;
-        speed_final = current_plan.speed_target;
+        lane = current_plan.lane_target - 1;
+        speed_final = SafeSpeedForLane(lane);;
         t = t_change;
     }
     else
     {
         assert(strcmp(states[state], "CHANGE_RIGHT") == 0);
-        lane = lane_actual + 1;
-        speed_final = current_plan.speed_target;
+        lane = current_plan.lane_target + 1;
+        speed_final = SafeSpeedForLane(lane);
         t = t_change;
     }
 
@@ -437,12 +434,12 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
         , {"valid lane", { 1e6, [=](const Plan& plan) {
             return valid_lane_cost(plan.lane_target);
         }}}
-        , {"smoothness ", { 1e3, [=](const Plan& plan) {
-            return smoothness_cost(plan.path, dt, 9.0);
-        }}}
-        , {"speed cost", { 3.0, [=](const Plan& plan) {
-            return fmax(0, speed_limit - plan.speed_target) / speed_margin;
-        }}}
+//        , {"smoothness ", { 1e3, [=](const Plan& plan) {
+//            return smoothness_cost(plan.path, dt, 9.0);
+//        }}}
+//        , {"speed cost", { 3.0, [=](const Plan& plan) {
+//            return fmax(0, speed_limit - plan.speed_target) / speed_margin;
+//        }}}
         , {"keep right", { 1.01, [=](const Plan& plan) {
             return keep_right(plan.lane_current, plan.lane_target);
         }}}
@@ -450,8 +447,7 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
             return SoftCarAvoidanceCost(plan.path);
         }}}
         , {"lane change", { 1.0, [=](const Plan& plan) {
-            double fractional_lane = vehicle_state.d / LANE_WIDTH - 0.5;
-            return abs(2 * fractional_lane - plan.lane_current - plan.lane_target);
+            return abs(2 * lane_actual - plan.lane_current - plan.lane_target);
         }}}
         , {"speed change", { 1.0, [=](const Plan& plan) {
             return fabs(current_plan.speed_target - plan.speed_target) / (5.0 * t_straight);
