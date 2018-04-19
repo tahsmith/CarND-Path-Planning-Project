@@ -54,7 +54,7 @@ static const double CAR_WIDTH = 3.5;
 
 //#define DEBUG_STATE
 //#define DEBUG_COST
-#define DEBUG_TRAJ
+//#define DEBUG_TRAJ
 
 vector<uint8_t> SuccessorStates(size_t state) {
     vector<uint8_t> states{};
@@ -205,44 +205,23 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
                                      double speed_final) const
 {
     double x_initial;
-    if (!previous_path.x.empty())
-    {
-        x_initial = previous_path.x.front();
-    }
-    else
-    {
-        x_initial = vehicle_state.x;
-    }
-
     double y_initial;
-    if (!previous_path.y.empty())
-    {
-        y_initial = previous_path.y.front();
-    }
-    else
-    {
-        y_initial = vehicle_state.y;
-    }
-
     double vx_initial;
     double vy_initial;
     double ax_initial;
     double ay_initial;
-    if (previous_path.x.size() > 2)
+
+    if (previous_path.x.size() > 3)
     {
+        x_initial = previous_path.x.front();
+        y_initial = previous_path.y.front();
+
         vx_initial = (previous_path.x[1] - previous_path.x[0]) / dt;
         double vx2_initial =
             (previous_path.x[2] - previous_path.x[1]) / dt;
         ax_initial = (vx2_initial - vx_initial) / dt;
         vx_initial = (vx_initial + vx2_initial) / 2.0;
-    }
-    else
-    {
-        vx_initial = 0;
-        ax_initial = 0;
-    }
-    if (previous_path.y.size() > 2)
-    {
+
         vy_initial = (previous_path.y[1] - previous_path.y[0]) / dt;
         double vy2_initial =
             (previous_path.y[2] - previous_path.y[1]) / dt;
@@ -251,9 +230,16 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
     }
     else
     {
+        x_initial = vehicle_state.x;
+        y_initial = vehicle_state.y;
+
+        vx_initial = 0;
+        ax_initial = 0;
+
         vy_initial = 0;
         ay_initial = 0;
     }
+
     double v = length(vx_initial, vy_initial);
     if (v > speed_limit) {
         vx_initial = vx_initial * speed_limit / v;
@@ -474,8 +460,8 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
 
     static const map<const char*, tuple<double, function<double(const Plan&)> > > components {
         {"car collision", { 1e6, [=](const Plan& plan) {
-                return CarAvoidanceCost(plan.path);
-            }}}
+            return CarAvoidanceCost(plan.path);
+        }}}
         , {"valid lane", { 1e6, [=](const Plan& plan) {
             return valid_lane_cost(plan.lane_target);
         }}}
