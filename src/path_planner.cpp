@@ -551,9 +551,9 @@ double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_inf
         , {"speed limit", { 1e6, [=](const Plan& plan) {
             return speed_limit_cost(plan.path, hard_speed_limit);
         }}}
-//        , {"smoothness ", { 1e3, [=](const Plan& plan) {
-//            return smoothness_cost(plan.path, dt, acc_limit);
-//        }}}
+        , {"smoothness ", { 1e3, [=](const Plan& plan) {
+            return smoothness_cost(plan.path, dt, acc_limit);
+        }}}
         , {"speed cost", { 3.0, [=](const Plan& plan) {
             return fmax(0, speed_limit - plan.speed_target) / speed_margin;
         }}}
@@ -888,8 +888,8 @@ TEST_CASE("Path costs") {
             0.0, 0.0
         );
 
-        REQUIRE(speed_limit_cost(path, hard_speed_limit) > 1.0);
-        REQUIRE(smoothness_cost(path, dt, 10.0) > 1.0);
+        REQUIRE(speed_limit_cost(path, hard_speed_limit) >= 1.0);
+        REQUIRE(smoothness_cost(path, dt, 10.0) >= 1.0);
 
     }
 
