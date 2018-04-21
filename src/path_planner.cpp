@@ -88,22 +88,33 @@ Path smooth(const Path& path, double dt, double max_v, double max_a)
     smoothed.x = {x};
     smoothed.y = {y};
 
+    smoothed.vx = {vx};
+    smoothed.vy = {vy};
+
     for (size_t i = 1; i < path.x.size(); ++i) {
         double ax = path.ax[i - 1];
         double ay = path.ay[i - 1];
 
         double a = min(max_a, length(ax, ay));
         double delta = atan2(ay, ax);
-        vx += a * dt * cos(delta);
-        vy += a * dt * sin(delta);
+        ax = a * cos(delta);
+        ay = a * sin(delta);
+        vx += ax * dt;
+        vy += ay * dt;
 
         double v = min(max_v, length(vx, vy));
         double phi = atan2(vy, vx);
-        x += v * dt * cos(phi);
-        y += v * dt * sin(phi);
+        vx = v * cos(phi);
+        vy = v * sin(phi);
+        x += vx * dt;
+        y += vy * dt;
 
         smoothed.x.push_back(x);
         smoothed.y.push_back(y);
+        smoothed.vx.push_back(vx);
+        smoothed.vy.push_back(vy);
+        smoothed.ax.push_back(vx);
+        smoothed.ay.push_back(vy);
     }
 
     return smoothed;
@@ -179,9 +190,6 @@ Path PathPlanner::PlanPath()
 
     planner_state = next_state;
     current_plan = plan_list[minimum_i];
-
-    current_plan.path = smooth(current_plan.path, dt, hard_speed_limit,
-                               hard_acc_limit);
 
     vector<double> x;
     vector<double> y;
@@ -322,8 +330,7 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
                                    x_initial, y_initial,
                                    vx_initial, vy_initial,
                                    ax_initial, ay_initial);
-
-    return std::move(path);
+    return smooth(path, dt, hard_speed_limit, hard_acc_limit);
 }
 
 Path
@@ -481,11 +488,11 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
             return valid_lane_cost(plan.lane_target);
         }}}
         , {"speed limit", { 1e6, [=](const Plan& plan) {
-            return speed_limit_cost(plan.path, hard_speed_limit);
+            return speed_limit_cost(plan.path, speed_limit);
         }}}
-        , {"smoothness ", { 1e3, [=](const Plan& plan) {
-            return smoothness_cost(plan.path, dt, acc_limit);
-        }}}
+//        , {"smoothness ", { 1e3, [=](const Plan& plan) {
+//            return smoothness_cost(plan.path, dt, acc_limit);
+//        }}}
         , {"speed cost", { 3.0, [=](const Plan& plan) {
             return fmax(0, speed_limit - plan.speed_target) / speed_margin;
         }}}
