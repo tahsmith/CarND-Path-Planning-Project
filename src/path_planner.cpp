@@ -55,7 +55,7 @@ static const double CAR_LENGTH = 7.0;
 static const double CAR_WIDTH = 3.5;
 
 //#define DEBUG_STATE
-//#define DEBUG_COST
+#define DEBUG_COST
 //#define DEBUG_TRAJ
 
 vector<uint8_t> SuccessorStates(size_t state) {
@@ -202,6 +202,17 @@ Path PathPlanner::PlanPath()
     #ifdef DEBUG_COST
     if (next_state != planner_state) {
         printf("== Changing states\n");
+        printf("Planner state: %s"
+               " lane_actual  %1ld"
+               " lane_current %1ld"
+               " lane_target  %1ld"
+               " speed_target %4.1f\n",
+               states[planner_state],
+               lane_actual,
+               current_plan.lane_current,
+               current_plan.lane_target,
+               current_plan.speed_target
+        );
         printf(" = Leaving  %s cost %6.1g\n", states[planner_state],
                cost_list[planner_state]);
         PrintDebugInfo(cost_debug_info_list[planner_state]);
