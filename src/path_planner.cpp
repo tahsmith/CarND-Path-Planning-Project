@@ -19,6 +19,8 @@ using std::vector;
 using std::move;
 using std::numeric_limits;
 using std::tie;
+using std::make_tuple;
+using std::forward_as_tuple;
 using std::map;
 using std::min;
 using std::max;
@@ -125,10 +127,14 @@ Path PathPlanner::PlanPath()
     lane_actual = lround((vehicle_state.d - LANE_WIDTH / 2) / LANE_WIDTH);
 
     #ifdef DEBUG_STATE
-//    printf("\033c");
-//    printf("\033[%d;%dH", 0, 0);
+    printf("\033c");
+    printf("\033[%d;%dH", 0, 0);
 
-    printf("Planner state %s: lane_actual %ld lane_current %ld lane_target %ld speed_target %f\n",
+    printf("Planner state: %s\n"
+           " lane_actual  %1ld\n"
+           " lane_current %1ld\n"
+           " lane_target  %1ld\n"
+           " speed_target %4.1f\n",
                  states[planner_state],
                  lane_actual,
                  current_plan.lane_current,
@@ -136,7 +142,12 @@ Path PathPlanner::PlanPath()
                  current_plan.speed_target
     );
 
-    printf("Vehicle state: s %f d %f x %f y %f speed %f\n",
+    printf("Vehicle state:\n"
+           " s     %f\n"
+           " d     %f\n"
+           " x     %f\n"
+           " y     %f\n"
+           " speed %f\n",
            vehicle_state.s,
            vehicle_state.d,
            vehicle_state.x,
@@ -148,7 +159,11 @@ Path PathPlanner::PlanPath()
         double x,y,dx,dy;
         tie(x, y) = map_data.InterpolateRoadCoords(vehicle_state.s, vehicle_state.d);
         tie(dx, dy) = map_data.InterpolateRoadTangent(vehicle_state.s);
-        printf("Road state: x %f y %f dx %f dy %f\n",
+        printf("Road state:\n"
+               " x  %f\n"
+               " y  %f\n"
+               " dx %f\n"
+               " dy %f\n",
                x,
                y,
                dx,
@@ -158,23 +173,19 @@ Path PathPlanner::PlanPath()
     #endif
 
     auto candidate_states = SuccessorStates(planner_state);
-    std::vector<double> cost_list(candidate_states.size(), std::numeric_limits<float>::infinity());
-    vector<Plan> plan_list(candidate_states.size());
-    for (size_t i = 0; i < cost_list.size(); ++i)
+    std::vector<double> cost_list(n_states,
+                                  std::numeric_limits<float>::infinity());
+    vector<Plan> plan_list(n_states);
+    std::vector<CostDebugInfo> cost_debug_info_list(n_states);
+    for (size_t i = 0; i < candidate_states.size(); ++i)
     {
         auto plan = GeneratePlanForState(candidate_states[i]);
         if(!plan.path.x.empty()) {
-            #ifdef DEBUG_COST
-            printf("PLAN %s\n", states[candidate_states[i]]);
-            #endif
-
-            cost_list[i] = CostForTrajectory(plan);
-
-            #ifdef DEBUG_COST
-            printf("TOTAL: %f\n", cost_list[i]);
-            #endif
-
-            plan_list[i] = move(plan);
+            cost_list[candidate_states[i]] = CostForTrajectory(
+                plan,
+                cost_debug_info_list[candidate_states[i]]
+            );
+            plan_list[candidate_states[i]] = move(plan);
         }
     }
 
@@ -186,7 +197,19 @@ Path PathPlanner::PlanPath()
             minimum_i = i;
         }
     }
-    auto next_state = candidate_states[minimum_i];
+    auto next_state = minimum_i;
+
+    #ifdef DEBUG_COST
+    if (next_state != planner_state) {
+        printf("== Changing states\n");
+        printf(" = Leaving  %s cost %6.1g\n", states[planner_state],
+               cost_list[planner_state]);
+        PrintDebugInfo(cost_debug_info_list[planner_state]);
+        printf(" = Entering %s cost %6.1g\n", states[next_state],
+               cost_list[next_state]);
+        PrintDebugInfo(cost_debug_info_list[next_state]);
+    }
+    #endif
 
     planner_state = next_state;
     current_plan = plan_list[minimum_i];
@@ -226,58 +249,72 @@ Path PathPlanner::PlanPath()
 
 Plan PathPlanner::GeneratePlanForState(uint8_t state) const
 {
-    long lane;
+    long lane_target;
+    long lane_current;
     double speed_final;
     double t;
     double safe_acc = 5.0;
     if (state == 1)
     {
         assert(strcmp(states[state], "SPEED_UP") == 0);
-        lane = current_plan.lane_target;
+        lane_current = current_plan.lane_target;
+        lane_target = current_plan.lane_target;
         t = t_straight;
         speed_final = current_plan.speed_target + safe_acc * t;
     }
     else if(state == 2)
     {
         assert(strcmp(states[state], "SLOW_DOWN") == 0);
-        lane = current_plan.lane_target;
+        lane_current = current_plan.lane_target;
+        lane_target = current_plan.lane_target;
         t = t_straight;
         speed_final = current_plan.speed_target - safe_acc * t;
     }
     else if(state == 3)
     {
         assert(strcmp(states[state], "CRUISE") == 0);
-        lane = current_plan.lane_target;
-        speed_final = SafeSpeedForLane(lane);
+        lane_current = current_plan.lane_target;
+        lane_target = current_plan.lane_target;
+        speed_final = SafeSpeedForLane(lane_target);
         t = t_straight;
     }
     else if(state == 4)
     {
         assert(strcmp(states[state], "CHANGE_LEFT") == 0);
-        lane = current_plan.lane_current - 1;
-        speed_final = SafeSpeedForLane(lane);
+        lane_current = current_plan.lane_current;
+        lane_target = current_plan.lane_current - 1;
+        speed_final = SafeSpeedForLane(lane_target);
         t = t_change;
     }
     else
     {
         assert(strcmp(states[state], "CHANGE_RIGHT") == 0);
-        lane = current_plan.lane_current + 1;
-        speed_final = SafeSpeedForLane(lane);
+        lane_current = current_plan.lane_current;
+        lane_target = current_plan.lane_current + 1;
+        speed_final = SafeSpeedForLane(lane_target);
         t = t_change;
     }
 
-    double d_final = LANE_WIDTH / 2 + lane * LANE_WIDTH;
-    double s_final = vehicle_state.s + (current_plan.speed_target + speed_final) * 0.5 * t;
+    double r = (current_plan.speed_target + speed_final) * 0.5 * t;
+    double d_final = LANE_WIDTH / 2 + lane_target * LANE_WIDTH;
+    double dd = d_final - vehicle_state.d;
+    if (dd > r) {
+        // Infeasible change
+        return {};
+    }
+    double ds = sqrt(r * r - dd * dd);
+    double s_final = vehicle_state.s + ds;
     return {
-        GenerateTrajectory(t, s_final, d_final, speed_final),
-        lane_actual,
-        lane,
+        GenerateTrajectoryFromCurrent(t, s_final, d_final, speed_final),
+        lane_current,
+        lane_target,
         speed_final
     };
 }
 
-Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
-                                     double speed_final) const
+Path PathPlanner::GenerateTrajectoryFromCurrent(double t_final, double s_final,
+                                                double d_final,
+                                                double speed_final) const
 {
     double x_initial;
     double y_initial;
@@ -475,12 +512,15 @@ double smoothness_cost(const Path& path, double dt, double a_max) {
     return min(1.0, cost_total / path.vx.size());
 }
 
-double PathPlanner::CostForTrajectory(const Plan& plan) const
+double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_info) const
 {
     // If the speed difference is speed_margin the cost is 1.
     const double speed_margin = 5.0;
 
-    static const map<const char*, tuple<double, function<double(const Plan&)> > > components {
+    static const map<
+        const char*,
+        tuple<double, function<double(const Plan&)> >
+            > components {
         {"car collision", { 1e9, [=](const Plan& plan) {
             return CarAvoidanceCost(plan.path);
         }}}
@@ -514,14 +554,16 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
     double cost_total = 0.0;
     for (auto&& item : components)
     {
-        const char* name = item.first;
         double weight = get<0>(item.second);
-        function<double(const Plan&)> cost_fn = get<1>(item.second);
+        const auto& cost_fn = get<1>(item.second);
         double cost = cost_fn(plan);
         cost_total += weight * cost;
 
         #ifdef DEBUG_COST
-        printf("%15s: base %f weighted %f\n", name, cost, cost * weight);
+        const char* name = item.first;
+        debug_info.emplace(
+            name, make_tuple(cost, weight, weight * cost)
+            );
         #endif
     }
 
@@ -683,6 +725,26 @@ void PathPlanner::UpdateCarPaths()
         car_paths.push_back(move(car_path));
     }
     this->car_paths = move(car_paths);
+}
+
+void print_cost_info(const char* name, double cost, double weight,
+                     double weighted_cost) {
+    printf("%15s: base %6.1g weight %6.1g weighted cost %6.1g\n",
+           name, cost, weight, weighted_cost);
+}
+
+void PathPlanner::PrintDebugInfo(const PathPlanner::CostDebugInfo& debug_info)
+{
+    for (auto&& entry: debug_info)
+    {
+        std::string name;
+        double cost;
+        double weight;
+        double weighted_cost;
+        auto _ = forward_as_tuple(cost, weight, weighted_cost);
+        tie(name, _) = entry;
+        print_cost_info(name.c_str(), cost, weight, weighted_cost);
+    }
 }
 
 #include "catch2/catch.hpp"

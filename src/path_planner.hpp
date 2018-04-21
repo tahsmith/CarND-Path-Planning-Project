@@ -76,10 +76,14 @@ public:
     Path previous_path;
 
     Path
-    GenerateTrajectory(double t_final, double s_final, double d_final,
-                           double speed_final) const;
+    GenerateTrajectoryFromCurrent(double t_final, double s_final,
+                                  double d_final,
+                                  double speed_final) const;
     Plan GeneratePlanForState(uint8_t state) const;
-    double CostForTrajectory(const Plan&) const;
+
+    typedef std::map<std::string, std::tuple<double, double, double> > CostDebugInfo;
+    double CostForTrajectory(const Plan& plan, CostDebugInfo& debug_info) const;
+    void PrintDebugInfo(const CostDebugInfo&);
 
     size_t FindCarToFollow(long lane) const;
 
