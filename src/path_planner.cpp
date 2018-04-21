@@ -276,32 +276,32 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
     else if(state == 2)
     {
         assert(strcmp(states[state], "SLOW_DOWN") == 0);
-        lane_current = current_plan.lane_target;
-        lane_target = current_plan.lane_target;
+        lane_current = lane_actual;
+        lane_target = lane_actual;
         t = t_straight;
         speed_final = current_plan.speed_target - safe_acc * t;
     }
     else if(state == 3)
     {
         assert(strcmp(states[state], "CRUISE") == 0);
-        lane_current = current_plan.lane_target;
-        lane_target = current_plan.lane_target;
+        lane_current = lane_actual;
+        lane_target = lane_actual;
         speed_final = SafeSpeedForLane(lane_target);
         t = t_straight;
     }
     else if(state == 4)
     {
         assert(strcmp(states[state], "CHANGE_LEFT") == 0);
-        lane_current = current_plan.lane_current;
-        lane_target = current_plan.lane_current - 1;
+        lane_current = lane_actual;
+        lane_target = lane_actual - 1;
         speed_final = SafeSpeedForLane(lane_target);
         t = t_change;
     }
     else
     {
         assert(strcmp(states[state], "CHANGE_RIGHT") == 0);
-        lane_current = current_plan.lane_current;
-        lane_target = current_plan.lane_current + 1;
+        lane_current = lane_actual;
+        lane_target = lane_actual + 1;
         speed_final = SafeSpeedForLane(lane_target);
         t = t_change;
     }
@@ -536,7 +536,7 @@ double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_inf
             return valid_lane_cost(plan.lane_target);
         }}}
         , {"speed limit", { 1e6, [=](const Plan& plan) {
-            return speed_limit_cost(plan.path, speed_limit);
+            return speed_limit_cost(plan.path, hard_speed_limit);
         }}}
 //        , {"smoothness ", { 1e3, [=](const Plan& plan) {
 //            return smoothness_cost(plan.path, dt, acc_limit);
