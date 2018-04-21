@@ -298,10 +298,7 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
     double r = (current_plan.speed_target + speed_final) * 0.5 * t;
     double d_final = LANE_WIDTH / 2 + lane_target * LANE_WIDTH;
     double dd = d_final - vehicle_state.d;
-    if (dd > r) {
-        // Infeasible change
-        return {};
-    }
+    assert(abs(dd) < abs(r));
     double ds = sqrt(r * r - dd * dd);
     double s_final = vehicle_state.s + ds;
     return {
