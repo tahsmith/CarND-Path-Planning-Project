@@ -41,10 +41,10 @@ const char* states[n_states] = {
 
 static const int transitions[n_states][n_states] {
 /* from \ to    *  START SPEED_UP SLOW_DOW CRUISE CHANGE_LEFT CHANGE_RIGHT */
-/* START        */ {0,   0,       0,       1,     0,          0},
+/* START        */ {0,   1,       0,       0,     0,          0},
 /* SPEED_UP     */ {0,   0,       0,       1,     0,          0},
 /* SLOW_DOWN    */ {0,   0,       0,       1,     0,          0},
-/* CRUISE       */ {0,   0,       0,       1,     1,          1},
+/* CRUISE       */ {0,   0,       1,       1,     1,          1},
 /* CHANGE_LEFT  */ {0,   0,       0,       1,     1,          0},
 /* CHANGE_RIGHT */ {0,   0,       0,       1,     0,          1}
 };
@@ -306,14 +306,27 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
         t = t_change;
     }
 
-    double r = (current_plan.speed_target + speed_final) * 0.5 * t;
+    double dr = (current_plan.speed_target + speed_final) * 0.5 * t;
     double d_final = LANE_WIDTH / 2 + lane_target * LANE_WIDTH;
     double dd = d_final - vehicle_state.d;
-    assert(abs(dd) < abs(r));
-    double ds = sqrt(r * r - dd * dd);
-    double s_final = vehicle_state.s + ds;
+    double s_final;
+    Path path{};
+
+    if (abs(dd) <= abs(dr)) {
+        double ds = sqrt(dr * dr - dd * dd);
+        s_final = vehicle_state.s + ds;
+    }
+    else {
+        // This path may be infeasible, or we are just standing still at the
+        // start. If it is actually infeasible, the smoothing cost will remove
+        // it from consideration. Either way, assume we are heading only
+        // forward.
+        s_final = vehicle_state.s + dr;
+    }
+    path = GenerateTrajectoryFromCurrent(t, s_final, d_final, speed_final);
+
     return {
-        GenerateTrajectoryFromCurrent(t, s_final, d_final, speed_final),
+        path,
         lane_current,
         lane_target,
         speed_final
