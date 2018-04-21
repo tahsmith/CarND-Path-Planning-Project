@@ -39,10 +39,10 @@ const char* states[n_states] = {
 
 static const int transitions[n_states][n_states] {
 /* from \ to    *  START SPEED_UP SLOW_DOW CRUISE CHANGE_LEFT CHANGE_RIGHT */
-/* START        */ {0,   1,       0,       0,     0,          0},
-/* SPEED_UP     */ {0,   1,       0,       1,     0,          0},
-/* SLOW_DOWN    */ {0,   0,       1,       1,     0,          0},
-/* CRUISE       */ {0,   1,       1,       1,     1,          1},
+/* START        */ {0,   0,       0,       1,     0,          0},
+/* SPEED_UP     */ {0,   0,       0,       1,     0,          0},
+/* SLOW_DOWN    */ {0,   0,       0,       1,     0,          0},
+/* CRUISE       */ {0,   0,       0,       1,     1,          1},
 /* CHANGE_LEFT  */ {0,   0,       0,       1,     1,          0},
 /* CHANGE_RIGHT */ {0,   0,       0,       1,     0,          1}
 };
@@ -88,7 +88,7 @@ Path smooth(const Path& path, double dt, double max_v, double max_a)
     smoothed.x = {x};
     smoothed.y = {y};
 
-    for (size_t i = 0; i < path.x.size(); ++i) {
+    for (size_t i = 1; i < path.x.size(); ++i) {
         double ax = path.ax[i - 1];
         double ay = path.ay[i - 1];
 
@@ -180,7 +180,22 @@ Path PathPlanner::PlanPath()
     planner_state = next_state;
     current_plan = plan_list[minimum_i];
 
-    current_plan.path = smooth(current_plan.path, dt, speed_limit, acc_limit);
+    current_plan.path = smooth(current_plan.path, dt, hard_speed_limit,
+                               hard_acc_limit);
+
+    vector<double> x;
+    vector<double> y;
+    for(size_t i = 0; i < min(2UL, previous_path.x.size()); ++i) {
+        x.push_back(previous_path.x[i]);
+        y.push_back(previous_path.y[i]);
+    }
+
+    for(size_t i = 0; i < current_plan.path.x.size(); ++i) {
+        x.push_back(current_plan.path.x[i]);
+        y.push_back(current_plan.path.y[i]);
+    }
+
+    current_plan.path = {x, y};
 
     #ifdef DEBUG_TRAJ
     // Sanity checks
@@ -193,24 +208,64 @@ Path PathPlanner::PlanPath()
 
     assert(all_of_list(vx, less_than(hard_speed_limit)));
     assert(all_of_list(vy, less_than(hard_speed_limit)));
-    assert(all_of_list(ax, less_than(acc_limit)));
-    assert(all_of_list(ay, less_than(acc_limit)));
+//    assert(all_of_list(ax, less_than(acc_limit)));
+//    assert(all_of_list(ay, less_than(acc_limit)));
     #endif
 
-    vector<double> x;
-    vector<double> y;
-    for(size_t i = 0; i < min(1UL, previous_path.x.size()); ++i) {
-        x.push_back(previous_path.x[i]);
-        y.push_back(previous_path.y[i]);
+    return current_plan.path;
+
+}
+
+Plan PathPlanner::GeneratePlanForState(uint8_t state) const
+{
+    long lane;
+    double speed_final;
+    double t;
+    double safe_acc = 5.0;
+    if (state == 1)
+    {
+        assert(strcmp(states[state], "SPEED_UP") == 0);
+        lane = current_plan.lane_target;
+        t = t_straight;
+        speed_final = current_plan.speed_target + safe_acc * t;
+    }
+    else if(state == 2)
+    {
+        assert(strcmp(states[state], "SLOW_DOWN") == 0);
+        lane = current_plan.lane_target;
+        t = t_straight;
+        speed_final = current_plan.speed_target - safe_acc * t;
+    }
+    else if(state == 3)
+    {
+        assert(strcmp(states[state], "CRUISE") == 0);
+        lane = current_plan.lane_target;
+        speed_final = SafeSpeedForLane(lane);
+        t = t_straight;
+    }
+    else if(state == 4)
+    {
+        assert(strcmp(states[state], "CHANGE_LEFT") == 0);
+        lane = current_plan.lane_current - 1;
+        speed_final = SafeSpeedForLane(lane);
+        t = t_change;
+    }
+    else
+    {
+        assert(strcmp(states[state], "CHANGE_RIGHT") == 0);
+        lane = current_plan.lane_current + 1;
+        speed_final = SafeSpeedForLane(lane);
+        t = t_change;
     }
 
-    for(size_t i = 0; i < current_plan.path.x.size(); ++i) {
-        x.push_back(current_plan.path.x[i]);
-        y.push_back(current_plan.path.y[i]);
-    }
-
-    return {x, y};
-
+    double d_final = LANE_WIDTH / 2 + lane * LANE_WIDTH;
+    double s_final = vehicle_state.s + (current_plan.speed_target + speed_final) * 0.5 * t;
+    return {
+        GenerateTrajectory(t, s_final, d_final, speed_final),
+        lane_actual,
+        lane,
+        speed_final
+    };
 }
 
 Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
@@ -225,8 +280,8 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
 
     if (previous_path.x.size() > 2)
     {
-        x_initial = previous_path.x[1];
-        y_initial = previous_path.y[1];
+        x_initial = previous_path.x[2];
+        y_initial = previous_path.y[2];
 
         vx_initial = (previous_path.x[1] - previous_path.x[0]) / dt;
         double vx2_initial =
@@ -350,58 +405,6 @@ void PathPlanner::UpdateHistory(Path previousPath)
     this->previous_path = std::move(previousPath);
 }
 
-Plan PathPlanner::GeneratePlanForState(uint8_t state) const
-{
-    long lane;
-    double speed_final;
-    double t;
-    double safe_acc = 5.0;
-    if (state == 1)
-    {
-        assert(strcmp(states[state], "SPEED_UP") == 0);
-        lane = current_plan.lane_target;
-        t = t_straight;
-        speed_final = current_plan.speed_target + safe_acc * t;
-    }
-    else if(state == 2)
-    {
-        assert(strcmp(states[state], "SLOW_DOWN") == 0);
-        lane = current_plan.lane_target;
-        t = t_straight;
-        speed_final = current_plan.speed_target - safe_acc * t;
-    }
-    else if(state == 3)
-    {
-        assert(strcmp(states[state], "CRUISE") == 0);
-        lane = current_plan.lane_target;
-        speed_final = current_plan.speed_target;
-        t = t_straight;
-    }
-    else if(state == 4)
-    {
-        assert(strcmp(states[state], "CHANGE_LEFT") == 0);
-        lane = current_plan.lane_current - 1;
-        speed_final = SafeSpeedForLane(lane);
-        t = t_change;
-    }
-    else
-    {
-        assert(strcmp(states[state], "CHANGE_RIGHT") == 0);
-        lane = current_plan.lane_current + 1;
-        speed_final = SafeSpeedForLane(lane);
-        t = t_change;
-    }
-
-    double s_final = vehicle_state.s + (current_plan.speed_target + speed_final) * 0.5 * t;
-    double d_final = LANE_WIDTH / 2 + lane * LANE_WIDTH;
-    return {
-        GenerateTrajectory(t, s_final, d_final, speed_final),
-        lane_actual,
-        lane,
-        speed_final
-    };
-}
-
 double PathPlanner::SafeSpeedForLane(long lane) const
 {
     auto car_in_front = FindCarToFollow(lane);
@@ -471,17 +474,17 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
     const double speed_margin = 5.0;
 
     static const map<const char*, tuple<double, function<double(const Plan&)> > > components {
-        {"car collision", { 1e6, [=](const Plan& plan) {
+        {"car collision", { 1e9, [=](const Plan& plan) {
             return CarAvoidanceCost(plan.path);
         }}}
-        , {"valid lane", { 1e6, [=](const Plan& plan) {
+        , {"valid lane", { 1e9, [=](const Plan& plan) {
             return valid_lane_cost(plan.lane_target);
         }}}
-        , {"speed limit", { 1e3, [=](const Plan& plan) {
+        , {"speed limit", { 1e6, [=](const Plan& plan) {
             return speed_limit_cost(plan.path, hard_speed_limit);
         }}}
         , {"smoothness ", { 1e3, [=](const Plan& plan) {
-            return smoothness_cost(plan.path, dt, 9.0);
+            return smoothness_cost(plan.path, dt, acc_limit);
         }}}
         , {"speed cost", { 3.0, [=](const Plan& plan) {
             return fmax(0, speed_limit - plan.speed_target) / speed_margin;
@@ -495,9 +498,9 @@ double PathPlanner::CostForTrajectory(const Plan& plan) const
         , {"lane change", { 1.0, [=](const Plan& plan) {
             return abs(2 * lane_actual - plan.lane_current - plan.lane_target);
         }}}
-        , {"speed change", { 1.0, [=](const Plan& plan) {
-            return fabs(current_plan.speed_target - plan.speed_target) / (5.0 * t_straight);
-        }}}
+//        , {"speed change", { 1.0, [=](const Plan& plan) {
+//            return fabs(current_plan.speed_target - plan.speed_target) / (5.0 * t_straight);
+//        }}}
     };
 
 
