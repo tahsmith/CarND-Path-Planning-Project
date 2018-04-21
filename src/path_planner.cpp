@@ -54,7 +54,7 @@ static const double CAR_WIDTH = 3.5;
 
 //#define DEBUG_STATE
 //#define DEBUG_COST
-#define DEBUG_TRAJ
+//#define DEBUG_TRAJ
 
 vector<uint8_t> SuccessorStates(size_t state) {
     vector<uint8_t> states{};
@@ -216,8 +216,8 @@ Path PathPlanner::PlanPath()
 
     assert(all_of_list(vx, less_than(hard_speed_limit)));
     assert(all_of_list(vy, less_than(hard_speed_limit)));
-//    assert(all_of_list(ax, less_than(acc_limit)));
-//    assert(all_of_list(ay, less_than(acc_limit)));
+    assert(all_of_list(ax, less_than(acc_limit)));
+    assert(all_of_list(ay, less_than(acc_limit)));
     #endif
 
     return current_plan.path;
@@ -330,7 +330,7 @@ Path PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_fi
                                    x_initial, y_initial,
                                    vx_initial, vy_initial,
                                    ax_initial, ay_initial);
-    return smooth(path, dt, hard_speed_limit, hard_acc_limit);
+    return smooth(path, dt, 0.99 * hard_speed_limit, 0.99 * hard_acc_limit);
 }
 
 Path
