@@ -2,6 +2,11 @@
 // Created by Timothy Smith on 2/4/18.
 //
 
+#define NDEBUG
+//#define DEBUG_STATE
+//#define DEBUG_COST
+//#define DEBUG_TRAJ
+
 #include <utility>
 #include <vector>
 #include <cmath>
@@ -54,9 +59,6 @@ static const double FOLLOW_DISTANCE = 25.0;
 static const double CAR_LENGTH = 7.0;
 static const double CAR_WIDTH = 3.5;
 
-//#define DEBUG_STATE
-#define DEBUG_COST
-//#define DEBUG_TRAJ
 
 vector<uint8_t> SuccessorStates(size_t state) {
     vector<uint8_t> states{};
@@ -551,9 +553,9 @@ double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_inf
         , {"speed limit", { 1e6, [=](const Plan& plan) {
             return speed_limit_cost(plan.path, hard_speed_limit);
         }}}
-        , {"smoothness ", { 1e3, [=](const Plan& plan) {
-            return smoothness_cost(plan.path, dt, acc_limit);
-        }}}
+//        , {"smoothness ", { 1e3, [=](const Plan& plan) {
+//            return smoothness_cost(plan.path, dt, acc_limit);
+//        }}}
         , {"speed cost", { 3.0, [=](const Plan& plan) {
             return fmax(0, speed_limit - plan.speed_target) / speed_margin;
         }}}
@@ -618,7 +620,7 @@ double PathPlanner::CarAvoidanceCost(const Path& path) const
     {
         cost += CarAvoidanceCostPerCar(path, i);
     }
-    return cost / sensor_fusion_data.id.size();
+    return min(1.0, cost / sensor_fusion_data.id.size());
 }
 
 double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_paths_i) const
@@ -629,33 +631,6 @@ double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_paths_i)
 
     for (size_t i = 1; i < n_points; i++) {
         cost += CarPotential(
-            path.x[i], path.y[i],
-            path.vx[i], path.vy[i],
-            car_paths[car_paths_i].x[i], car_paths[car_paths_i].y[i],
-            car_paths[car_paths_i].vx[i], car_paths[car_paths_i].vy[i]
-        );
-    }
-    return cost / path.x.size();
-}
-
-double PathPlanner::SoftCarAvoidanceCost(const Path& path) const
-{
-    double cost = 0;
-    for (size_t i = 0; i < sensor_fusion_data.id.size(); i++)
-    {
-        cost += SoftCarAvoidanceCostPerCar(path, i);
-    }
-    return cost / sensor_fusion_data.id.size();
-}
-
-double PathPlanner::SoftCarAvoidanceCostPerCar(const Path& path, size_t car_paths_i) const
-{
-    double cost = 0.0;
-
-    size_t n_points = min(car_paths[car_paths_i].x.size(), path.x.size());
-
-    for (size_t i = 1; i < n_points; i++) {
-        cost += SoftCarPotential(
             path.x[i], path.y[i],
             path.vx[i], path.vy[i],
             car_paths[car_paths_i].x[i], car_paths[car_paths_i].y[i],
@@ -700,6 +675,33 @@ double PathPlanner::CarPotential(double x, double y,
     return cost;
 }
 
+double PathPlanner::SoftCarAvoidanceCost(const Path& path) const
+{
+    double cost = 0;
+    for (size_t i = 0; i < sensor_fusion_data.id.size(); i++)
+    {
+        cost += SoftCarAvoidanceCostPerCar(path, i);
+    }
+    return min(1.0, cost / sensor_fusion_data.id.size());
+}
+
+double PathPlanner::SoftCarAvoidanceCostPerCar(const Path& path, size_t car_paths_i) const
+{
+    double cost = 0.0;
+
+    size_t n_points = min(car_paths[car_paths_i].x.size(), path.x.size());
+
+    for (size_t i = 1; i < n_points; i++) {
+        cost += SoftCarPotential(
+            path.x[i], path.y[i],
+            path.vx[i], path.vy[i],
+            car_paths[car_paths_i].x[i], car_paths[car_paths_i].y[i],
+            car_paths[car_paths_i].vx[i], car_paths[car_paths_i].vy[i]
+        );
+    }
+    return cost / path.x.size();
+}
+
 double PathPlanner::SoftCarPotential(double x, double y,
                                  double vx, double vy,
                                  double car_x, double car_y,
@@ -723,7 +725,7 @@ double PathPlanner::SoftCarPotential(double x, double y,
     double forward = (dx * car_vx + dy * car_vy) / car_rv;
     double lateral = (dy * car_vx - dx * car_vy) / car_rv;
 
-    return exp(-(pow(lateral / CAR_WIDTH, 2)
+    return 1 / ((pow(lateral / CAR_WIDTH, 2)
                  + pow(forward / FOLLOW_DISTANCE, 2)));
 }
 
