@@ -85,8 +85,8 @@ public:
                              double ax_initial, double ax_final, double ay_initial,
                              double ay_final) const;
 
-    const double hard_speed_limit = 22.35;
-    const double speed_limit = hard_speed_limit * 0.95;  //  22.35m s^-1 ~= 50 miles / hr
+    const double hard_speed_limit = 22.35;  //  22.35m s^-1 ~= 50 miles / hr
+    const double speed_limit = hard_speed_limit * 0.95;
     const double hard_acc_limit = 10.0;
     const double acc_limit = hard_acc_limit * 0.95;
     const double t_straight = 0.5;

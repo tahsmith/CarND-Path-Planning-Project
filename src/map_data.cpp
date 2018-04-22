@@ -105,6 +105,7 @@ void MapData::PrepareInterpolation()
     dx_curves = GeneratePolys(waypoints_dx, waypoints_s, max_s);
     dy_curves = GeneratePolys(waypoints_dy, waypoints_s, max_s);
 
+    // Do some sanity checks on the the results.
     for (size_t i = 1; i < waypoints_s.size(); ++i) {
         double x0 = waypoints_x[i - 1];
         double x;
