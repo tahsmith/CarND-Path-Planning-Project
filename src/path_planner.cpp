@@ -557,9 +557,9 @@ double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_inf
         , {"speed limit", { 1e6, [=](const Plan& plan) {
             return speed_limit_cost(plan.path, hard_speed_limit);
         }}}
-        , {"smoothness ", { 1e3, [=](const Plan& plan) {
-            return smoothness_cost(plan.path, dt, hard_acc_limit);
-        }}}
+//        , {"smoothness ", { 1e3, [=](const Plan& plan) {
+//            return smoothness_cost(plan.path, dt, hard_acc_limit);
+//        }}}
         , {"speed cost", { 3.0, [=](const Plan& plan) {
             return fmax(0, speed_limit - plan.speed_target) / speed_margin;
         }}}
@@ -634,14 +634,14 @@ double PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_paths_i)
     size_t n_points = min(car_paths[car_paths_i].x.size(), path.x.size());
 
     for (size_t i = 1; i < n_points; i++) {
-        cost += CarPotential(
+        cost += n_points / (i + 1.0) * CarPotential(
             path.x[i], path.y[i],
             path.vx[i], path.vy[i],
             car_paths[car_paths_i].x[i], car_paths[car_paths_i].y[i],
             car_paths[car_paths_i].vx[i], car_paths[car_paths_i].vy[i]
         );
     }
-    return cost / path.x.size();
+    return cost / n_points;
 }
 
 double PathPlanner::CarPotential(double x, double y,
@@ -686,7 +686,7 @@ double PathPlanner::SoftCarAvoidanceCost(const Path& path) const
     {
         cost += SoftCarAvoidanceCostPerCar(path, i);
     }
-    return min(1.0, cost / sensor_fusion_data.id.size());
+    return cost / sensor_fusion_data.id.size();
 }
 
 double PathPlanner::SoftCarAvoidanceCostPerCar(const Path& path, size_t car_paths_i) const
@@ -696,14 +696,14 @@ double PathPlanner::SoftCarAvoidanceCostPerCar(const Path& path, size_t car_path
     size_t n_points = min(car_paths[car_paths_i].x.size(), path.x.size());
 
     for (size_t i = 1; i < n_points; i++) {
-        cost += SoftCarPotential(
+        cost += n_points / (i + 1.0) * SoftCarPotential(
             path.x[i], path.y[i],
             path.vx[i], path.vy[i],
             car_paths[car_paths_i].x[i], car_paths[car_paths_i].y[i],
             car_paths[car_paths_i].vx[i], car_paths[car_paths_i].vy[i]
         );
     }
-    return cost / path.x.size();
+    return cost / n_points;
 }
 
 double PathPlanner::SoftCarPotential(double x, double y,
