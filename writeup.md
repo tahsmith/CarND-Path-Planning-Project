@@ -36,3 +36,8 @@ Law limits have been given a scale of 1e6. Comfort limits have been given 1e3.
  * Car avoidance: Make sure there is a safe gap between cars.
  * Lane change: Don't make unnecessary lane changes.
  
+ ## Trajectory Generation
+ 
+ ### Own car
+ 
+ ### Other cars

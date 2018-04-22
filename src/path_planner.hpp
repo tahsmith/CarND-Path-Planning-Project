@@ -59,9 +59,9 @@ public:
 
 
     const double hard_speed_limit = 22.35;
-    const double speed_limit = hard_speed_limit * 0.90;  //  22.35m s^-1 ~= 50 miles / hr
+    const double speed_limit = hard_speed_limit * 0.95;  //  22.35m s^-1 ~= 50 miles / hr
     const double hard_acc_limit = 10.0;
-    const double acc_limit = hard_acc_limit * 0.90;
+    const double acc_limit = hard_acc_limit * 0.95;
     const double t_straight = 1.0;
     const double t_change = 1.5;
     const double dt;

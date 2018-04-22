@@ -2,10 +2,11 @@
 // Created by Timothy Smith on 2/4/18.
 //
 
-#define NDEBUG
+//#define NDEBUG
 //#define DEBUG_STATE
-//#define DEBUG_COST
+#define DEBUG_COST
 //#define DEBUG_TRAJ
+#define POST_PROCESS_TRAJ
 
 #include <utility>
 #include <vector>
@@ -390,7 +391,10 @@ Path PathPlanner::GenerateTrajectoryFromCurrent(double t_final, double s_final,
                                    x_initial, y_initial,
                                    vx_initial, vy_initial,
                                    ax_initial, ay_initial);
-    return smooth(path, dt, 0.99 * hard_speed_limit, 0.99 * hard_acc_limit);
+    #ifdef POST_PROCESS_TRAJ
+    path = smooth(path, dt, 0.99 * hard_speed_limit, 0.99 * hard_acc_limit);
+    #endif
+    return path;
 }
 
 Path
@@ -553,9 +557,9 @@ double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_inf
         , {"speed limit", { 1e6, [=](const Plan& plan) {
             return speed_limit_cost(plan.path, hard_speed_limit);
         }}}
-//        , {"smoothness ", { 1e3, [=](const Plan& plan) {
-//            return smoothness_cost(plan.path, dt, acc_limit);
-//        }}}
+        , {"smoothness ", { 1e3, [=](const Plan& plan) {
+            return smoothness_cost(plan.path, dt, hard_acc_limit);
+        }}}
         , {"speed cost", { 3.0, [=](const Plan& plan) {
             return fmax(0, speed_limit - plan.speed_target) / speed_margin;
         }}}
@@ -752,7 +756,7 @@ void PathPlanner::UpdateCarPaths()
 
 void print_cost_info(const char* name, double cost, double weight,
                      double weighted_cost) {
-    printf("%15s: base %6.1g weight %6.1g weighted cost %6.1g\n",
+    printf("%15s: base %8.3g weight %8.3g weighted cost %8.3g\n",
            name, cost, weight, weighted_cost);
 }
 
@@ -764,8 +768,8 @@ void PathPlanner::PrintDebugInfo(const PathPlanner::CostDebugInfo& debug_info)
         double cost;
         double weight;
         double weighted_cost;
-        auto _ = forward_as_tuple(cost, weight, weighted_cost);
-        tie(name, _) = entry;
+        auto info = forward_as_tuple(cost, weight, weighted_cost);
+        tie(name, info) = entry;
         print_cost_info(name.c_str(), cost, weight, weighted_cost);
     }
 }

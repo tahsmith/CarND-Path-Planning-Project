@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <functional>
 
 // For converting back and forth between radians and degrees.
 constexpr double pi()

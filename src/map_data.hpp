@@ -21,7 +21,6 @@ public:
 
     std::vector<Polynomial> x_curves;
     std::vector<Polynomial> y_curves;
-    std::vector<Polynomial> s_curves;
     std::vector<Polynomial> dx_curves;
     std::vector<Polynomial> dy_curves;
 
