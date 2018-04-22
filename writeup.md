@@ -36,8 +36,26 @@ Law limits have been given a scale of 1e6. Comfort limits have been given 1e3.
  * Car avoidance: Make sure there is a safe gap between cars.
  * Lane change: Don't make unnecessary lane changes.
  
- ## Trajectory Generation
+## Trajectory Generation
  
- ### Own car
+### Own car
  
- ### Other cars
+To generate trajectories for the car under control. The first three point of 
+Last path are taken to calculate an initial velocity and acceleration so
+the new curve joins smoothly to the last one. Final states are chosen by
+transforming desired final state s,d coords to x,y coords. The road normal is
+used to find a final velocity. (See PathPlanner::GenerateTrajectoryFromCurrent.)
+A jerk minimal polynomial is used at the interpolation curve between the start
+and end points.
+
+The trajectory is then filtered to ensure it does not exceed the constraints at
+any point.
+
+Road points are also interpolated with polynomial, instead of the linear routine
+provided. This allowed from smoother curves in corners. (See MapData class.)
+
+### Other cars
+
+Other cars on the road are assumed to occupy the same lane and travel at the 
+same speed. Their trajectories are calculated use the same JMT. 
+(See PathPlanner::UpdateCarPaths).
