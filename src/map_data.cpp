@@ -28,7 +28,7 @@ tuple<size_t, double> MapData::InterpolationPoint(double s) const
 
     double s0 = waypoints_s[i - 1];
 
-    return {
+    return tuple<double, double> {
         i - 1,
         s - s0
     };
@@ -40,7 +40,7 @@ tuple<double, double> MapData::InterpolateRoadTangent(double s) const
     double l;
     tie(i, l) = InterpolationPoint(s);
 
-    return {
+    return tuple<double, double> {
         -dy_curves[i].Evaluate(l),
         dx_curves[i].Evaluate(l)
     };
@@ -52,7 +52,7 @@ tuple<double, double> MapData::InterpolateRoadCoords(double s, double d) const
     double l;
     tie(i, l) = InterpolationPoint(s);
 
-    return {
+    return tuple<double, double> {
         x_curves[i].Evaluate(l) + dx_curves[i].Evaluate(l) * d,
         y_curves[i].Evaluate(l) + dy_curves[i].Evaluate(l) * d,
     };
