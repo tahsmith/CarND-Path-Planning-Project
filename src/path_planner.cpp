@@ -12,6 +12,7 @@
 #include <vector>
 #include <cmath>
 #include <cassert>
+#include <cstring>
 #include <iostream>
 #include <numeric>
 #include <map>
@@ -33,7 +34,7 @@ using std::max;
 using std::tuple;
 using std::function;
 using std::get;
-using namespace std::this_thread;
+using std::strcmp;
 
 const size_t n_states = 6;
 const char* states[n_states] = {
