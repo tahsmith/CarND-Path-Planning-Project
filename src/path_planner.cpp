@@ -540,6 +540,13 @@ double smoothness_cost(const Path& path, double dt, double a_max) {
     return min(1.0, cost_total / path.vx.size());
 }
 
+class CostComponent {
+public:
+//    const char* name;
+    double weight;
+    function<double(const Plan&)> function;
+};
+
 double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_info) const
 {
     // If the speed difference is speed_margin the cost is 1.
@@ -547,8 +554,7 @@ double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_inf
 
     static const map<
         const char*,
-        tuple<double, function<double(const Plan&)> >
-            > components {
+        CostComponent> components {
         {"car collision", { 1e9, [=](const Plan& plan) {
             return CarAvoidanceCost(plan.path);
         }}}
@@ -582,8 +588,8 @@ double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_inf
     double cost_total = 0.0;
     for (auto&& item : components)
     {
-        double weight = get<0>(item.second);
-        const auto& cost_fn = get<1>(item.second);
+        double weight = item.second.weight;
+        const auto& cost_fn = item.second.function;
         double cost = cost_fn(plan);
         cost_total += weight * cost;
 
