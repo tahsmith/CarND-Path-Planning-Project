@@ -542,9 +542,9 @@ double smoothness_cost(const Path& path, double dt, double a_max) {
 
 class CostComponent {
 public:
-//    const char* name;
+    const char *name;
     double weight;
-    function<double(const Plan&)> function;
+    function<double(const Plan&)> cost_function;
 };
 
 double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_info) const
@@ -552,49 +552,47 @@ double PathPlanner::CostForTrajectory(const Plan& plan, CostDebugInfo& debug_inf
     // If the speed difference is speed_margin the cost is 1.
     const double speed_margin = 5.0;
 
-    static const map<
-        const char*,
-        CostComponent> components {
-        {"car collision", { 1e9, [=](const Plan& plan) {
+    static const CostComponent components[]  {
+        {"car collision",  1e9, [=](const Plan& plan) {
             return CarAvoidanceCost(plan.path);
-        }}}
-        , {"valid lane", { 1e9, [=](const Plan& plan) {
+        }}
+        , {"valid lane",  1e9, [=](const Plan& plan) {
             return valid_lane_cost(plan.lane_target);
-        }}}
-        , {"speed limit", { 1e6, [=](const Plan& plan) {
+        }}
+        , {"speed limit", 1e6, [=](const Plan& plan) {
             return speed_limit_cost(plan.path, hard_speed_limit);
-        }}}
-//        , {"smoothness ", { 1e3, [=](const Plan& plan) {
+        }}
+//        , {"smoothness ", 1e3, [=](const Plan& plan) {
 //            return smoothness_cost(plan.path, dt, hard_acc_limit);
-//        }}}
-        , {"speed cost", { 3.0, [=](const Plan& plan) {
+//        }}
+        , {"speed cost", 3.0, [=](const Plan& plan) {
             return fmax(0, speed_limit - plan.speed_target) / speed_margin;
-        }}}
-        , {"keep right", { 1.01, [=](const Plan& plan) {
+        }}
+        , {"keep right", 1.01, [=](const Plan& plan) {
             return keep_right(plan.lane_current, plan.lane_target);
-        }}}
-        , {"car avoidance", { 5.0, [=](const Plan& plan) {
+        }}
+        , {"car avoidance", 5.0, [=](const Plan& plan) {
             return SoftCarAvoidanceCost(plan.path);
-        }}}
-        , {"lane change", { 1.0, [=](const Plan& plan) {
+        }}
+        , {"lane change", 1.0, [=](const Plan& plan) {
             return abs(2 * lane_actual - plan.lane_current - plan.lane_target);
-        }}}
-//        , {"speed change", { 1.0, [=](const Plan& plan) {
+        }}
+//        , {"speed change", 1.0, [=](const Plan& plan) {
 //            return fabs(current_plan.speed_target - plan.speed_target) / (5.0 * t_straight);
-//        }}}
+//        }}
     };
 
 
     double cost_total = 0.0;
     for (auto&& item : components)
     {
-        double weight = item.second.weight;
-        const auto& cost_fn = item.second.function;
+        double weight = item.weight;
+        const auto& cost_fn = item.cost_function;
         double cost = cost_fn(plan);
         cost_total += weight * cost;
 
         #ifdef DEBUG_COST
-        const char* name = item.first;
+        const char* name = item.name;
         debug_info.emplace(
             name, make_tuple(cost, weight, weight * cost)
             );
