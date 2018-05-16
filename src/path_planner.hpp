@@ -47,11 +47,12 @@ public:
 class PathPlanner
 {
 public:
-    PathPlanner(double dt, MapData mapData);
+    PathPlanner(MapData mapData);
     void UpdateLocalisation(VehicleState state);
     void UpdateHistory(Path previousPath);
     void UpdateSensorFusion(SensorFusionData);
     Path PlanPath();
+    Path FinalTrajectory(const Path& previous_path, const Plan& plan);
     Plan GeneratePlanForState(uint8_t state) const;
     Path
     GenerateTrajectoryFromCurrent(double t_final, double s_final,
@@ -86,12 +87,13 @@ public:
                              double ay_final) const;
 
     const double hard_speed_limit = 22.35;  //  22.35m s^-1 ~= 50 miles / hr
-    const double speed_limit = hard_speed_limit * 0.95;
+    const double speed_limit = hard_speed_limit * 0.90;
     const double hard_acc_limit = 10.0;
-    const double acc_limit = hard_acc_limit * 0.95;
-    const double t_straight = 0.5;
+    const double acc_limit = hard_acc_limit * 0.90;
+    const double t_straight = 1.5;
     const double t_change = 1.5;
-    const double dt;
+    const double planning_dt = 0.2;
+    const double control_dt = 0.02;
     MapData map_data;
     VehicleState vehicle_state;
     uint8_t planner_state;

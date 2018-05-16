@@ -68,7 +68,6 @@ int main()
     }
 
     PathPlanner planner{
-        0.02,
         move(mapData)
     };
 
