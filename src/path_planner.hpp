@@ -70,16 +70,16 @@ public:
                                 double car_vx, double car_vy) const;
     double SoftCarAvoidanceCostPerCar(const Path& path, size_t i) const;
     double SoftCarAvoidanceCost(const Path& path) const;
-    Path GenerateTrajectory(double s_final, double d_final,
-                                double speed_final, double x_initial,
-                                double y_initial, double vx_initial,
+    Path GenerateTrajectory(double s_initial, double s_final,
+                                double d_initial, double d_final,
+                                double speed_initial, double speed_final,
                                 double vy_initial, double ax_initial,
                                 double ay_initial) const;
-    Path InterpolatePath(double t_final, double x_initial, double x_final,
-                             double y_initial, double y_final, double vx_initial,
-                             double vx_final, double vy_initial, double vy_final,
-                             double ax_initial, double ax_final, double ay_initial,
-                             double ay_final) const;
+    Path InterpolatePath(double x_initial, double x_final, double y_initial,
+                             double y_final, double vx_initial, double vx_final,
+                             double vy_initial, double vy_final,
+                             double ax_initial, double ax_final,
+                             double ay_initial, double ay_final) const;
 
     MapData map_data;
     VehicleState vehicle_state;
