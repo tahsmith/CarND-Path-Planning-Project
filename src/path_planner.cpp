@@ -4,9 +4,8 @@
 
 //#define NDEBUG
 //#define DEBUG_STATE
-#define DEBUG_COST
-#define DEBUG_TRAJ
-#define POST_PROCESS_TRAJ
+//#define DEBUG_COST
+//#define DEBUG_TRAJ
 
 #include <utility>
 #include <vector>
@@ -34,36 +33,46 @@ using std::function;
 using std::get;
 using std::strcmp;
 
-const size_t n_states = 6;
-const char* states[n_states] = {
-    "START",
-    "SPEED_UP",
-    "SLOW_DOWN",
-    "CRUISE",
-    "CHANGE_LEFT",
-    "CHANGE_RIGHT"
-};
+// Hidden constants
+namespace
+{
+    const size_t n_states = 6;
+    const char* states[n_states] = {
+        "START",
+        "SPEED_UP",
+        "SLOW_DOWN",
+        "CRUISE",
+        "CHANGE_LEFT",
+        "CHANGE_RIGHT"
+    };
 
-static const int transitions[n_states][n_states]{
+    // TODO: These are rigged for debugging trajectories. Change back.
+    const int transitions[n_states][n_states]{
 /* from \ to    *  START SPEED_UP SLOW_DOW CRUISE CHANGE_LEFT CHANGE_RIGHT */
-/* START        */ {0, 1, 0, 0, 0, 0},
-/* SPEED_UP     */
-                   {0, 0, 0, 1, 0, 0},
-/* SLOW_DOWN    */
-                   {0, 0, 0, 1, 0, 0},
-/* CRUISE       */
-                   {0, 0, 1, 1, 1, 1},
-/* CHANGE_LEFT  */
-                   {0, 0, 0, 1, 1, 0},
-/* CHANGE_RIGHT */
-                   {0, 0, 0, 1, 0, 1}
-};
+/* START        */ {0,   1,       0,       0,     0,          0},
+/* SPEED_UP     */ {0,   1,       0,       1,     0,          0},
+/* SLOW_DOWN    */ {0,   0,       1,       1,     0,          0},
+/* CRUISE       */ {0,   0,       0,       1,     0,          1},
+/* CHANGE_LEFT  */ {0,   0,       0,       1,     1,          0},
+/* CHANGE_RIGHT */ {0,   0,       0,       1,     0,          1}
+    };
 
-static const double LANE_WIDTH = 4.0;
-static const double FOLLOW_DISTANCE = 25.0;
-static const double CAR_LENGTH = 7.0;
-static const double CAR_WIDTH = 3.5;
+    const double LANE_WIDTH = 4.0;
+    const double FOLLOW_DISTANCE = 25.0;
+    const double CAR_LENGTH = 7.0;
+    const double CAR_WIDTH = 3.5;
 
+    const double hard_speed_limit = 22.35;  //  22.35m s^-1 ~= 50 miles / hr
+    const double speed_limit = hard_speed_limit * 0.95;
+    const double hard_acc_limit = 10.0;
+    const double acc_limit = hard_acc_limit * 0.90;
+    const double planning_dt = 0.6;
+    const size_t planning_steps = 4;
+    const double planning_time = planning_steps * planning_dt;
+    const double control_dt = 0.02;
+    const size_t control_steps = 50;
+    const size_t final_path_overlap = 5;
+}
 
 vector<uint8_t> SuccessorStates(size_t state)
 {
@@ -88,7 +97,14 @@ PathPlanner::PathPlanner(MapData mapData) :
 
 Path PathPlanner::PlanPath()
 {
-    lane_actual = lround((vehicle_state.d - LANE_WIDTH / 2) / LANE_WIDTH);
+    lane_actual = lround(vehicle_state.d / LANE_WIDTH - 0.5);
+
+    if (planner_state == 0)
+    {
+        current_plan.lane_current = lane_actual;
+        current_plan.lane_target = lane_actual;
+        current_plan.speed_target = 0;
+    }
 
     #ifdef DEBUG_STATE
     printf("\033c");
@@ -196,64 +212,18 @@ Path PathPlanner::PlanPath()
     return FinalTrajectory(previous_path, current_plan);
 }
 
-Path smooth(const Path& path, double dt, double max_v, double max_a)
-{
-    Path smoothed{};
-
-    double x = path.x[0];
-    double y = path.y[0];
-    double vx = path.vx[0];
-    double vy = path.vy[0];
-
-    smoothed.x = {x};
-    smoothed.y = {y};
-
-    smoothed.vx = {vx};
-    smoothed.vy = {vy};
-
-    for (size_t i = 1; i < path.x.size(); ++i)
-    {
-        double ax = path.ax[i - 1];
-        double ay = path.ay[i - 1];
-
-        double a = min(max_a, length(ax, ay));
-        double delta = atan2(ay, ax);
-        ax = a * cos(delta);
-        ay = a * sin(delta);
-        vx += ax * dt;
-        vy += ay * dt;
-
-        double v = min(max_v, length(vx, vy));
-        double phi = atan2(vy, vx);
-        vx = v * cos(phi);
-        vy = v * sin(phi);
-        x += vx * dt;
-        y += vy * dt;
-
-        smoothed.x.push_back(x);
-        smoothed.y.push_back(y);
-        smoothed.vx.push_back(vx);
-        smoothed.vy.push_back(vy);
-        smoothed.ax.push_back(vx);
-        smoothed.ay.push_back(vy);
-    }
-
-    return smoothed;
-}
-
 Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
 {
     Path waypoints;
     
-    size_t overlap = min(2UL, previous_path.x.size());
-    assert(overlap * control_dt < planning_dt);
+    size_t overlap = min(final_path_overlap, previous_path.x.size());
     
     for (size_t i = 0; i < overlap; ++i)
     {
         waypoints.x.push_back(previous_path.x[i]);
         waypoints.y.push_back(previous_path.y[i]);
     }
-    for (size_t i = overlap; i < plan.path.x.size(); ++i)
+    for (size_t i = 0; i < plan.path.x.size(); ++i)
     {
         waypoints.x.push_back(plan.path.x[i]);
         waypoints.y.push_back(plan.path.y[i]);
@@ -267,9 +237,9 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
         t.push_back(i * control_dt);
     }
 
-    for (long i = overlap; i < waypoints.x.size(); ++i)
+    for (long i = 0; i < plan.path.x.size(); ++i)
     {
-        t.push_back(i * planning_dt);
+        t.push_back(overlap * control_dt + i * planning_dt);
     }
     assert(t.size() == waypoints.x.size());
 
@@ -281,20 +251,19 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
 
     Path final_traj;
 
-    auto n_control_points = lround(
-        ceil(waypoints.x.size() * planning_dt / control_dt));
-
     for (size_t i = 0; i < overlap; ++i)
     {
         final_traj.x.push_back(previous_path.x[i]);
         final_traj.y.push_back(previous_path.y[i]);
     }
 
-    for (size_t i = overlap; i < n_control_points; ++i)
+    for (size_t i = overlap; i < control_steps; ++i)
     {
         final_traj.x.push_back(x(control_dt * i));
         final_traj.y.push_back(y(control_dt * i));
     }
+    assert(final_traj.x.size() == final_traj.y.size());
+    assert(final_traj.x.size() == control_steps);
 
     #ifdef DEBUG_TRAJ
     // Sanity checks
@@ -319,31 +288,26 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
     long lane_target;
     long lane_current;
     double speed_final;
-    double t;
-    double safe_acc = 5.0;
     if (state == 1)
     {
         assert(strcmp(states[state], "SPEED_UP") == 0);
-        lane_current = current_plan.lane_target;
+        lane_current = lane_actual;
         lane_target = current_plan.lane_target;
-        t = t_straight;
-        speed_final = current_plan.speed_target + safe_acc * t;
+        speed_final = current_plan.speed_target + acc_limit * planning_time;
     }
     else if (state == 2)
     {
         assert(strcmp(states[state], "SLOW_DOWN") == 0);
         lane_current = lane_actual;
-        lane_target = lane_actual;
-        t = t_straight;
-        speed_final = current_plan.speed_target - safe_acc * t;
+        lane_target = current_plan.lane_target;
+        speed_final = current_plan.speed_target - acc_limit * planning_time;
     }
     else if (state == 3)
     {
         assert(strcmp(states[state], "CRUISE") == 0);
         lane_current = lane_actual;
-        lane_target = lane_actual;
+        lane_target = current_plan.lane_target;
         speed_final = SafeSpeedForLane(lane_target);
-        t = t_straight;
     }
     else if (state == 4)
     {
@@ -351,7 +315,6 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
         lane_current = lane_actual;
         lane_target = lane_actual - 1;
         speed_final = SafeSpeedForLane(lane_target);
-        t = t_change;
     }
     else
     {
@@ -359,29 +322,9 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
         lane_current = lane_actual;
         lane_target = lane_actual + 1;
         speed_final = SafeSpeedForLane(lane_target);
-        t = t_change;
     }
 
-    double dr = (current_plan.speed_target + speed_final) * 0.5 * t;
-    double d_final = LANE_WIDTH / 2 + lane_target * LANE_WIDTH;
-    double dd = d_final - vehicle_state.d;
-    double s_final;
-    Path path{};
-
-    if (abs(dd) <= abs(dr))
-    {
-        double ds = sqrt(dr * dr - dd * dd);
-        s_final = vehicle_state.s + ds;
-    }
-    else
-    {
-        // This path may be infeasible, or we are just standing still at the
-        // start. If it is actually infeasible, the smoothing cost will remove
-        // it from consideration. Either way, assume we are heading only
-        // forward.
-        s_final = vehicle_state.s + dr;
-    }
-    path = GenerateTrajectoryFromCurrent(t, s_final, d_final, speed_final);
+    auto path = GenerateTrajectoryFromCurrent(lane_target, speed_final);
 
     return {
         path,
@@ -391,9 +334,8 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
     };
 }
 
-Path PathPlanner::GenerateTrajectoryFromCurrent(double t_final, double s_final,
-                                                double d_final,
-                                                double speed_final) const
+Path PathPlanner::GenerateTrajectoryFromCurrent(double lane_target,
+                                                double speed_target) const
 {
     double x_initial;
     double y_initial;
@@ -402,25 +344,26 @@ Path PathPlanner::GenerateTrajectoryFromCurrent(double t_final, double s_final,
     double ax_initial;
     double ay_initial;
 
-    if (previous_path.x.size() > 2)
+    if (previous_path.x.size() > final_path_overlap)
     {
-        // Take the first 3 points, i.e., 0, 1, 2 and make central differences
-        // around them. Reasonable compromise between smoothness with previous
-        // curve and control responsiveness. Taking more points, or backward
-        // differences will make the curve smoother, but responds too slow.
+        assert(final_path_overlap > 2);
+        size_t i[] = {
+            final_path_overlap - 2,
+            final_path_overlap - 1,
+            final_path_overlap
+        };
+        x_initial = previous_path.x[i[2]];
+        y_initial = previous_path.y[i[2]];
 
-        x_initial = previous_path.x[0];
-        y_initial = previous_path.y[0];
-
-        vx_initial = (previous_path.x[1] - previous_path.x[0]) / control_dt;
+        vx_initial = (previous_path.x[i[1]] - previous_path.x[i[0]]) / control_dt;
         double vx2_initial =
-            (previous_path.x[2] - previous_path.x[1]) / control_dt;
+            (previous_path.x[i[2]] - previous_path.x[i[1]]) / control_dt;
         ax_initial = (vx2_initial - vx_initial) / control_dt;
         vx_initial = (vx_initial + vx2_initial) / 2.0;
 
-        vy_initial = (previous_path.y[1] - previous_path.y[0]) / control_dt;
+        vy_initial = (previous_path.y[i[1]] - previous_path.y[i[0]]) / control_dt;
         double vy2_initial =
-            (previous_path.y[2] - previous_path.y[1]) / control_dt;
+            (previous_path.y[i[2]] - previous_path.y[i[1]]) / control_dt;
         ay_initial = (vy2_initial - vy_initial) / control_dt;
         vy_initial = (vy_initial + vy2_initial) / 2.0;
     }
@@ -436,20 +379,39 @@ Path PathPlanner::GenerateTrajectoryFromCurrent(double t_final, double s_final,
         ay_initial = 0;
     }
 
-    auto path = GenerateTrajectory(t_final, s_final, d_final, speed_final,
-                                   x_initial, y_initial,
-                                   vx_initial, vy_initial,
+    double d_final = LANE_WIDTH / 2 + lane_target * LANE_WIDTH;
+    double t = planning_dt * planning_steps;
+    double dr = (current_plan.speed_target + speed_target) * 0.5 * t;
+    double dd = d_final - vehicle_state.d;
+    double s_final;
+
+    if (abs(dd) <= abs(dr))
+    {
+        double ds = sqrt(dr * dr - dd * dd);
+        s_final = vehicle_state.s + ds;
+    }
+    else
+    {
+        // This path may be infeasible, or we are just standing still at the
+        // start. If it is actually infeasible, the smoothing cost will remove
+        // it from consideration. Either way, assume we are heading only
+        // forward.
+        s_final = vehicle_state.s + dr;
+    }
+
+    auto path = GenerateTrajectory(s_final, d_final, speed_target,
+                                   x_initial, y_initial, vx_initial, vy_initial,
                                    ax_initial, ay_initial);
 
     return path;
 }
 
 Path
-PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
-                                double speed_final,
-                                double x_initial, double y_initial,
-                                double vx_initial, double vy_initial,
-                                double ax_initial, double ay_initial) const
+PathPlanner::GenerateTrajectory(double s_final, double d_final,
+                                double speed_final, double x_initial,
+                                double y_initial, double vx_initial,
+                                double vy_initial, double ax_initial,
+                                double ay_initial) const
 {
     double x_final;
     double y_final;
@@ -460,6 +422,8 @@ PathPlanner::GenerateTrajectory(double t_final, double s_final, double d_final,
     double t = length(tx, ty);
     double vx_final = tx * speed_final / t;
     double vy_final = ty * speed_final / t;
+
+    double t_final = planning_steps * planning_dt;
 
     return InterpolatePath(t_final,
                            x_initial, x_final,
@@ -503,8 +467,6 @@ PathPlanner::InterpolatePath(double t_final, double x_initial, double x_final,
         path.y.push_back(y_curve.Evaluate(t));
         path.vx.push_back(vx_curve.Evaluate(t));
         path.vy.push_back(vy_curve.Evaluate(t));
-        path.ax.push_back(ax_curve.Evaluate(t));
-        path.ay.push_back(ay_curve.Evaluate(t));
     }
 
     return move(path);
@@ -570,33 +532,9 @@ double keep_right(long current, long target)
     }
 }
 
-double speed_limit_cost(const Path& path, double speed_limit)
+double speed_limit_cost(const Plan& plan, double speed_limit)
 {
-    assert(path.vx.size() == path.vy.size());
-
-    double cost_total = 0;
-    for (size_t i = 0; i < path.vx.size(); ++i)
-    {
-        double v = length(path.vx[i], path.vy[i]);
-        cost_total += fmax(0.0, exp(v - speed_limit) - 1);
-    }
-
-    return min(1.0, cost_total / path.vx.size());
-}
-
-double smoothness_cost(const Path& path, double dt, double a_max)
-{
-    assert(path.ax.size() == path.ay.size());
-    assert(path.ax.size() > 0);
-
-    double cost_total = 0;
-
-    for (size_t i = 1; i < path.vx.size(); ++i)
-    {
-        double a = length(path.ax[i], path.ay[i]);
-        cost_total += fmax(0.0, exp(a - a_max) - 1);
-    }
-    return min(1.0, cost_total / path.vx.size());
+    return min(1.0, fmax(0.0, exp(plan.speed_target - speed_limit) - 1));
 }
 
 class CostComponent
@@ -620,11 +558,8 @@ double PathPlanner::CostForTrajectory(const Plan& plan,
             return valid_lane_cost(plan.lane_target);
         }}
         , {"speed limit", 1e6, [=](const Plan& plan) {
-            return speed_limit_cost(plan.path, hard_speed_limit);
+            return speed_limit_cost(plan, hard_speed_limit);
         }}
-//        , {"smoothness ", 1e3, [=](const Plan& plan) {
-//            return smoothness_cost(plan.path, planning_dt, hard_acc_limit);
-//        }}
         , {"speed cost", 3.0, [=](const Plan& plan) {
             return fmax(0, 1 - plan.speed_target / speed_limit);
         }}
@@ -638,7 +573,7 @@ double PathPlanner::CostForTrajectory(const Plan& plan,
             return abs(2 * lane_actual - plan.lane_current - plan.lane_target);
         }}
 //        , {"speed change", 1.0, [=](const Plan& plan) {
-//            return fabs(current_plan.speed_target - plan.speed_target) / (5.0 * t_straight);
+//            return fabs(current_plan.speed_target - plan.speed_target) / (5.0 * planning_time);
 //        }}
     };
 
@@ -814,7 +749,7 @@ double PathPlanner::SoftCarPotential(double x, double y,
 void PathPlanner::UpdateCarPaths()
 {
     vector<Path> car_paths{};
-    double t = t_straight;
+    double t = planning_dt * planning_steps;
     for (size_t i = 0; i < sensor_fusion_data.id.size(); ++i)
     {
         auto car_id = sensor_fusion_data.id[i];
@@ -823,11 +758,10 @@ void PathPlanner::UpdateCarPaths()
         double d_car = sensor_fusion_data.d[car_id];
 
         auto car_path = GenerateTrajectory(
-            t, sensor_fusion_data.s[car_id] + car_speed * t, d_car, car_speed,
+            sensor_fusion_data.s[car_id] + car_speed * t, d_car, car_speed,
             sensor_fusion_data.x[car_id], sensor_fusion_data.y[car_id],
-            sensor_fusion_data.vx[car_id], sensor_fusion_data.vy[car_id],
-            0.0, 0.0
-        );
+            sensor_fusion_data.vx[car_id], sensor_fusion_data.vy[car_id], 0.0,
+            0.0);
         car_paths.push_back(move(car_path));
     }
     this->car_paths = move(car_paths);
@@ -884,15 +818,11 @@ TEST_CASE("PathPlanner")
 TEST_CASE("Path costs")
 {
     PathPlanner planner{MapData{}};
-    const double speed_limit = planner.speed_limit;
-    const double hard_speed_limit = planner.hard_speed_limit;
-    double t_straight = planner.t_straight;
-    double t_change = planner.t_change;
-    double dt = planner.planning_dt;
+    double dt = planning_dt;
     SECTION("straight") {
         auto path = planner.InterpolatePath(
-            t_straight,
-            0.0, speed_limit * t_straight,
+            planning_time,
+            0.0, speed_limit * planning_time,
             0.0, 0.0,
             speed_limit, speed_limit,
             0.0, 0.0,
@@ -906,10 +836,10 @@ TEST_CASE("Path costs")
 
     SECTION("speed up") {
         double v0 = 0.0;
-        double v1 = v0 + 5.0 * t_straight;
+        double v1 = v0 + 5.0 * planning_time;
         auto path = planner.InterpolatePath(
-            t_straight,
-            0.0, (v1 + v0) * 0.5 * t_straight,
+            planning_time,
+            0.0, (v1 + v0) * 0.5 * planning_time,
             0.0, 0.0,
             v0, v1,
             0.0, 0.0,
@@ -923,10 +853,10 @@ TEST_CASE("Path costs")
 
     SECTION("slow down") {
         double v0 = speed_limit;
-        double v1 = v0 - 5.0 * t_straight;
+        double v1 = v0 - 5.0 * planning_time;
         auto path = planner.InterpolatePath(
-            t_straight,
-            0.0, (v1 + v0) * 0.5 * t_straight,
+            planning_time,
+            0.0, (v1 + v0) * 0.5 * planning_time,
             0.0, 0.0,
             v0, v1,
             0.0, 0.0,
@@ -940,8 +870,8 @@ TEST_CASE("Path costs")
 
     SECTION("left") {
         auto path = planner.InterpolatePath(
-            t_change,
-            0.0, speed_limit * t_change,
+            planning_time,
+            0.0, speed_limit * planning_time,
             0.0, -LANE_WIDTH,
             speed_limit, speed_limit,
             0.0, 0.0,
@@ -954,8 +884,8 @@ TEST_CASE("Path costs")
 
     SECTION("right") {
         auto path = planner.InterpolatePath(
-            t_change,
-            0.0, speed_limit * t_change,
+            planning_time,
+            0.0, speed_limit * planning_time,
             0.0, LANE_WIDTH,
             speed_limit, speed_limit,
             0.0, 0.0,
@@ -971,8 +901,8 @@ TEST_CASE("Path costs")
     SECTION("too fast") {
         auto too_fast = hard_speed_limit * 1.1;
         auto path = planner.InterpolatePath(
-            t_straight,
-            0.0, too_fast * t_straight,
+            planning_time,
+            0.0, too_fast * planning_time,
             0.0, 0.0,
             speed_limit, too_fast,
             0.0, 0.0,
