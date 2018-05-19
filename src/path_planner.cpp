@@ -372,7 +372,7 @@ Path PathPlanner::GenerateTrajectoryFromCurrent(double lane_target,
         double y1 = previous_path.y[final_path_overlap];
 
         double bearing = atan2(y1 - y0, x1 - x0);
-        tie(s_initial, d_initial) = map_data.InterpolateFrenetCoords(x0, y0, bearing);
+        tie(s_initial, d_initial) = map_data.InterpolateFrenetCoords(x1, y1, bearing);
         speed_initial = distance(x0, y0, x1, y1) / control_dt;
     }
     else
