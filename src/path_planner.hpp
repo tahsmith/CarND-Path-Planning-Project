@@ -62,16 +62,12 @@ public:
     size_t FindCarToFollow(long lane) const;
     double SafeSpeedForLane(long lane) const;
     void UpdateCarPaths();
-    double CarPotential(double x, double y,
-                        double vx, double vy,
-                        double car_x, double car_y,
-                        double car_vx, double car_vy) const;
+    double CarPotential(double x, double y, double car_x, double car_y,
+                            double car_vx, double car_vy) const;
     double CarAvoidanceCostPerCar(const Path& path, size_t i) const;
     double CarAvoidanceCost(const Path& path) const;
-    double SoftCarPotential(double x, double y,
-                            double vx, double vy,
-                            double car_x, double car_y,
-                            double car_vx, double car_vy) const;
+    double SoftCarPotential(double x, double y, double car_x, double car_y,
+                                double car_vx, double car_vy) const;
     double SoftCarAvoidanceCostPerCar(const Path& path, size_t i) const;
     double SoftCarAvoidanceCost(const Path& path) const;
     Path GenerateTrajectory(double s_final, double d_final,

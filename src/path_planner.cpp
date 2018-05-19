@@ -77,7 +77,7 @@ namespace
 vector<uint8_t> SuccessorStates(size_t state)
 {
     vector<uint8_t> states{};
-    for (size_t i = 0; i < n_states; ++i)
+    for (uint8_t i = 0; i < n_states; ++i)
     {
         if (transitions[state][i])
         {
@@ -157,22 +157,22 @@ Path PathPlanner::PlanPath()
                                   std::numeric_limits<float>::infinity());
     vector<Plan> plan_list(n_states);
     std::vector<CostDebugInfo> cost_debug_info_list(n_states);
-    for (size_t i = 0; i < candidate_states.size(); ++i)
+    for (uint8_t candidate_state : candidate_states)
     {
-        auto plan = GeneratePlanForState(candidate_states[i]);
+        auto plan = GeneratePlanForState(candidate_state);
         if (!plan.path.x.empty())
         {
-            cost_list[candidate_states[i]] = CostForTrajectory(
+            cost_list[candidate_state] = CostForTrajectory(
                 plan,
-                cost_debug_info_list[candidate_states[i]]
+                cost_debug_info_list[candidate_state]
             );
-            plan_list[candidate_states[i]] = move(plan);
+            plan_list[candidate_state] = move(plan);
         }
     }
 
     double minimum = cost_list[0];
-    size_t minimum_i = 0;
-    for (size_t i = 1; i < cost_list.size(); ++i)
+    uint8_t minimum_i = 0;
+    for (uint8_t i = 1; i < cost_list.size(); ++i)
     {
         if (cost_list[i] < minimum)
         {
@@ -346,7 +346,7 @@ Path PathPlanner::GenerateTrajectoryFromCurrent(double lane_target,
 
     if (previous_path.x.size() > final_path_overlap)
     {
-        assert(final_path_overlap > 2);
+        static_assert(final_path_overlap > 2, "");
         size_t i[] = {
             final_path_overlap - 2,
             final_path_overlap - 1,
@@ -639,18 +639,16 @@ PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_paths_i) const
 
     for (size_t i = 1; i < n_points; i++)
     {
-        cost += n_points / (i + 1.0) * CarPotential(
-            path.x[i], path.y[i],
-            path.vx[i], path.vy[i],
-            car_paths[car_paths_i].x[i], car_paths[car_paths_i].y[i],
-            car_paths[car_paths_i].vx[i], car_paths[car_paths_i].vy[i]
-        );
+        cost += n_points / (i + 1.0) *
+            CarPotential(path.x[i], path.y[i], car_paths[car_paths_i].x[i],
+                         car_paths[car_paths_i].y[i],
+                         car_paths[car_paths_i].vx[i],
+                         car_paths[car_paths_i].vy[i]);
     }
     return cost / n_points;
 }
 
 double PathPlanner::CarPotential(double x, double y,
-                                 double vx, double vy,
                                  double car_x, double car_y,
                                  double car_vx, double car_vy) const
 {
@@ -707,18 +705,16 @@ double PathPlanner::SoftCarAvoidanceCostPerCar(const Path& path,
 
     for (size_t i = 1; i < n_points; i++)
     {
-        cost += n_points / (i + 1.0) * SoftCarPotential(
-            path.x[i], path.y[i],
-            path.vx[i], path.vy[i],
-            car_paths[car_paths_i].x[i], car_paths[car_paths_i].y[i],
-            car_paths[car_paths_i].vx[i], car_paths[car_paths_i].vy[i]
-        );
+        cost += n_points / (i + 1.0) *
+            SoftCarPotential(path.x[i], path.y[i], car_paths[car_paths_i].x[i],
+                             car_paths[car_paths_i].y[i],
+                             car_paths[car_paths_i].vx[i],
+                             car_paths[car_paths_i].vy[i]);
     }
     return cost / n_points;
 }
 
 double PathPlanner::SoftCarPotential(double x, double y,
-                                     double vx, double vy,
                                      double car_x, double car_y,
                                      double car_vx, double car_vy) const
 {
@@ -750,9 +746,8 @@ void PathPlanner::UpdateCarPaths()
 {
     vector<Path> car_paths{};
     double t = planning_dt * planning_steps;
-    for (size_t i = 0; i < sensor_fusion_data.id.size(); ++i)
+    for (int car_id : sensor_fusion_data.id)
     {
-        auto car_id = sensor_fusion_data.id[i];
         double car_speed = sqrt(pow(sensor_fusion_data.vx[car_id], 2)
                                 + pow(sensor_fusion_data.vy[car_id], 2));
         double d_car = sensor_fusion_data.d[car_id];
@@ -794,31 +789,30 @@ TEST_CASE("PathPlanner")
 {
     PathPlanner planner{MapData{}};
     SECTION("CarPotential") {
-        REQUIRE(planner.CarPotential(0, 0, 0, 0, 0, 0, 0, 0) == 1.0);
-        REQUIRE(planner.CarPotential(0, 0, 0, 0, 0, 0, 1, 1) == 1.0);
+        REQUIRE(planner.CarPotential(0, 0, 0, 0, 0, 0) == 1.0);
+        REQUIRE(planner.CarPotential(0, 0, 0, 0, 1, 1) == 1.0);
 
-        REQUIRE(planner.CarPotential(LANE_WIDTH, 0, 0, 0, 0, 0, 0, 1) == 0.0);
-        REQUIRE(planner.CarPotential(-LANE_WIDTH, 0, 0, 0, 0, 0, 0, 1) == 0.0);
-
-        REQUIRE(
-            planner.CarPotential(LANE_WIDTH / 2, 0, 0, 0, 0, 0, 0, 1) == 1.0);
-        REQUIRE(
-            planner.CarPotential(-LANE_WIDTH / 2, 0, 0, 0, 0, 0, 0, 1) == 1.0);
-
-        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 0, 0, 1) == 1.0);
-        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 0, 0, 1) == 1.0);
+        REQUIRE(planner.CarPotential(LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
+        REQUIRE(planner.CarPotential(-LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
 
         REQUIRE(
-            planner.CarPotential(0, FOLLOW_DISTANCE, 0, 0, 0, 0, 0, 1) == 0.0);
+            planner.CarPotential(LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
         REQUIRE(
-            planner.CarPotential(0, -FOLLOW_DISTANCE, 0, 0, 0, 0, 0, 1) == 0.0);
+            planner.CarPotential(-LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
+
+        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
+        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
+
+        REQUIRE(
+            planner.CarPotential(0, FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
+        REQUIRE(
+            planner.CarPotential(0, -FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
     }
 }
 
 TEST_CASE("Path costs")
 {
     PathPlanner planner{MapData{}};
-    double dt = planning_dt;
     SECTION("straight") {
         auto path = planner.InterpolatePath(
             planning_time,
@@ -830,7 +824,7 @@ TEST_CASE("Path costs")
             0.0, 0.0);
 
         REQUIRE(speed_limit_cost(path, hard_speed_limit) < 1.0);
-        REQUIRE(smoothness_cost(path, dt, 10.0) < 1.0);
+        REQUIRE(smoothness_cost(path, planning_dt, 10.0) < 1.0);
 
     }
 
@@ -847,7 +841,7 @@ TEST_CASE("Path costs")
             0.0, 0.0);
 
         REQUIRE(speed_limit_cost(path, hard_speed_limit) < 1.0);
-        REQUIRE(smoothness_cost(path, dt, 10.0) < 1.0);
+        REQUIRE(smoothness_cost(path, planning_dt, 10.0) < 1.0);
 
     }
 
@@ -864,7 +858,7 @@ TEST_CASE("Path costs")
             0.0, 0.0);
 
         REQUIRE(speed_limit_cost(path, hard_speed_limit) < 1.0);
-        REQUIRE(smoothness_cost(path, dt, 10.0) < 1.0);
+        REQUIRE(smoothness_cost(path, planning_dt, 10.0) < 1.0);
 
     }
 
@@ -879,7 +873,7 @@ TEST_CASE("Path costs")
             0.0, 0.0
         );
         REQUIRE(speed_limit_cost(path, hard_speed_limit) < 1.0);
-        REQUIRE(smoothness_cost(path, dt, 10.0) < 1.0);
+        REQUIRE(smoothness_cost(path, planning_dt, 10.0) < 1.0);
     }
 
     SECTION("right") {
@@ -894,7 +888,7 @@ TEST_CASE("Path costs")
         );
 
         REQUIRE(speed_limit_cost(path, hard_speed_limit) < 1.0);
-        REQUIRE(smoothness_cost(path, dt, 10.0) < 1.0);
+        REQUIRE(smoothness_cost(path, planning_dt, 10.0) < 1.0);
 
     }
 
@@ -911,7 +905,7 @@ TEST_CASE("Path costs")
         );
 
         REQUIRE(speed_limit_cost(path, hard_speed_limit) >= 1.0);
-        REQUIRE(smoothness_cost(path, dt, 10.0) >= 1.0);
+        REQUIRE(smoothness_cost(path, planning_dt, 10.0) >= 1.0);
 
     }
 
