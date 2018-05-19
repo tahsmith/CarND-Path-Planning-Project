@@ -5,7 +5,7 @@
 //#define NDEBUG
 //#define DEBUG_STATE
 #define DEBUG_COST
-//#define DEBUG_TRAJ
+#define DEBUG_TRAJ
 #define POST_PROCESS_TRAJ
 
 #include <utility>
@@ -243,34 +243,63 @@ Path smooth(const Path& path, double dt, double max_v, double max_a)
 
 Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
 {
-    Path path;
-    path = plan.path;
-//    for (size_t i = 0; i < min(1UL, previous_path.x.size()); ++i)
-//    {
-//        path.x.push_back(previous_path.x[i]);
-//        path.y.push_back(previous_path.y[i]);
-//        path.vx.push_back(plan.path.vx[0]);
-//        path.vy.push_back(plan.path.vy[0]);
-//        path.ax.push_back(plan.path.ax[0]);
-//        path.ay.push_back(plan.path.ay[0]);
-//    }
-//
-//    for (size_t i = 0; i < plan.path.x.size(); ++i)
-//    {
-//        path.x.push_back(plan.path.x[i]);
-//        path.y.push_back(plan.path.y[i]);
-//        path.vx.push_back(plan.path.vx[i]);
-//        path.vy.push_back(plan.path.vy[i]);
-//        path.ax.push_back(plan.path.ax[i]);
-//        path.ay.push_back(plan.path.ay[i]);
-//    }
+    Path waypoints;
+    
+    size_t overlap = min(2UL, previous_path.x.size());
+    assert(overlap * control_dt < planning_dt);
+    
+    for (size_t i = 0; i < overlap; ++i)
+    {
+        waypoints.x.push_back(previous_path.x[i]);
+        waypoints.y.push_back(previous_path.y[i]);
+    }
+    for (size_t i = overlap; i < plan.path.x.size(); ++i)
+    {
+        waypoints.x.push_back(plan.path.x[i]);
+        waypoints.y.push_back(plan.path.y[i]);
+    }
+    
+    vector<double> t;
+    t.reserve(waypoints.x.size());
 
-//    auto smoothed = smooth(path, planning_dt, 0.99 * hard_speed_limit, 0.99 * hard_acc_limit);
+    for (long i = 0; i < overlap; ++i)
+    {
+        t.push_back(i * control_dt);
+    }
+
+    for (long i = overlap; i < waypoints.x.size(); ++i)
+    {
+        t.push_back(i * planning_dt);
+    }
+    assert(t.size() == waypoints.x.size());
+
+    tk::spline x;
+    x.set_points(t, waypoints.x);
+
+    tk::spline y;
+    y.set_points(t, waypoints.y);
+
+    Path final_traj;
+
+    auto n_control_points = lround(
+        ceil(waypoints.x.size() * planning_dt / control_dt));
+
+    for (size_t i = 0; i < overlap; ++i)
+    {
+        final_traj.x.push_back(previous_path.x[i]);
+        final_traj.y.push_back(previous_path.y[i]);
+    }
+
+    for (size_t i = overlap; i < n_control_points; ++i)
+    {
+        final_traj.x.push_back(x(control_dt * i));
+        final_traj.y.push_back(y(control_dt * i));
+    }
 
     #ifdef DEBUG_TRAJ
     // Sanity checks
-    auto vx = diff(smoothed.x, planning_dt);
-    auto vy = diff(smoothed.y, planning_dt);
+    auto vx = diff(final_traj.x, planning_dt);
+    auto vy = diff(final_traj.y, planning_dt);
     auto ax = diff(vx, planning_dt);
     auto ay = diff(vy, planning_dt);
     auto jx = diff(ax, planning_dt);
@@ -281,30 +310,7 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
     assert(all_of_list(ax, less_than(acc_limit)));
     assert(all_of_list(ay, less_than(acc_limit)));
     #endif
-
-    vector<double> t;
-    t.reserve(path.x.size());
-    for (long i = 0; i < path.x.size(); ++i)
-    {
-        t.push_back(i * planning_dt);
-    }
-
-    tk::spline x;
-    x.set_points(t, path.x);
-
-    tk::spline y;
-    y.set_points(t, path.y);
-
-    Path final_traj;
-
-    auto n_control_points = lround(
-        ceil(path.x.size() * planning_dt / control_dt));
-    for (size_t i = 0; i <n_control_points; ++i)
-    {
-        final_traj.x.push_back(x(control_dt * i));
-        final_traj.y.push_back(y(control_dt * i));
-    }
-
+    
     return final_traj;
 }
 
@@ -533,6 +539,7 @@ double PathPlanner::SafeSpeedForLane(long lane) const
             sensor_fusion_data.vx[car_in_front]
             + sensor_fusion_data.vy[car_in_front] *
               sensor_fusion_data.vy[car_in_front]);
+        speed = min(speed, speed_limit);
     }
     else
     {
@@ -816,7 +823,7 @@ void PathPlanner::UpdateCarPaths()
         double d_car = sensor_fusion_data.d[car_id];
 
         auto car_path = GenerateTrajectory(
-            t, sensor_fusion_data.s[car_id] + car_speed + t, d_car, car_speed,
+            t, sensor_fusion_data.s[car_id] + car_speed * t, d_car, car_speed,
             sensor_fusion_data.x[car_id], sensor_fusion_data.y[car_id],
             sensor_fusion_data.vx[car_id], sensor_fusion_data.vy[car_id],
             0.0, 0.0
