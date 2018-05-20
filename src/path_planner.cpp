@@ -46,13 +46,13 @@ namespace
         "CHANGE_RIGHT"
     };
 
-    // TODO: These are rigged for debugging trajectories. Change back.
+
     const int transitions[n_states][n_states]{
 /* from \ to    *  START SPEED_UP SLOW_DOW CRUISE CHANGE_LEFT CHANGE_RIGHT */
-/* START        */ {0,   0,       0,       1,     0,          0},
-/* SPEED_UP     */ {0,   1,       0,       1,     0,          0},
-/* SLOW_DOWN    */ {0,   0,       1,       1,     0,          0},
-/* CRUISE       */ {0,   0,       0,       1,     0,          0},
+/* START        */ {0,   1,       0,       0,     0,          0},
+/* SPEED_UP     */ {0,   0,       0,       1,     0,          0},
+/* SLOW_DOWN    */ {0,   0,       0,       1,     0,          0},
+/* CRUISE       */ {0,   1,       1,       1,     1,          1},
 /* CHANGE_LEFT  */ {0,   0,       0,       1,     1,          0},
 /* CHANGE_RIGHT */ {0,   0,       0,       1,     0,          1}
     };
@@ -66,11 +66,11 @@ namespace
     const double speed_limit = hard_speed_limit * 0.95;
     const double hard_acc_limit = 10.0;
     const double acc_limit = hard_acc_limit * 0.90;
-    const double planning_dt = 0.4;
-    const size_t planning_steps = 4;
+    const double planning_dt = 0.8;
+    const size_t planning_steps = 3;
     const double planning_time = planning_steps * planning_dt;
     const double control_dt = 0.02;
-    const size_t control_steps = lround(planning_dt * planning_steps / control_dt);
+    const size_t control_steps = lround(planning_time / control_dt);
     const size_t final_path_overlap = 5;
 }
 
@@ -261,7 +261,7 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
 
     for (long i = 1; i < plan.path.x.size(); ++i)
     {
-        t.push_back(overlap * control_dt + i * planning_dt);
+        t.push_back(i * planning_dt);
     }
     assert(t.size() == waypoints.x.size());
 
@@ -486,10 +486,10 @@ double PathPlanner::CostForTrajectory(const Plan& plan,
     // If the speed difference is speed_margin the cost is 1.
 
     static const CostComponent components[]  {
-//        {"car collision",  1e9, [=](const Plan& plan) {
-//            return CarAvoidanceCost(plan.path);
-//        }}
-        {"valid lane",  1e9, [=](const Plan& plan) {
+        {"car collision",  1e9, [=](const Plan& plan) {
+            return CarAvoidanceCost(plan.path);
+        }}
+        , {"valid lane",  1e9, [=](const Plan& plan) {
             return valid_lane_cost(plan.lane_target);
         }}
         , {"speed limit", 1e6, [=](const Plan& plan) {
@@ -501,9 +501,9 @@ double PathPlanner::CostForTrajectory(const Plan& plan,
         , {"keep right", 1.01, [=](const Plan& plan) {
             return keep_right(plan.lane_current, plan.lane_target);
         }}
-//        , {"car avoidance", 5.0, [=](const Plan& plan) {
-//            return SoftCarAvoidanceCost(plan.path);
-//        }}
+        , {"car avoidance", 5.0, [=](const Plan& plan) {
+            return SoftCarAvoidanceCost(plan.path);
+        }}
         , {"lane change", 1.0, [=](const Plan& plan) {
             return abs(2 * lane_actual - plan.lane_current - plan.lane_target);
         }}
@@ -576,46 +576,26 @@ PathPlanner::CarAvoidanceCostPerCar(const Path& path, size_t car_paths_i) const
     {
         cost += n_points / (i + 1.0) *
             CarPotential(path.x[i], path.y[i], car_paths[car_paths_i].x[i],
-                         car_paths[car_paths_i].y[i],
-                         car_paths[car_paths_i].vx[i],
-                         car_paths[car_paths_i].vy[i]);
+                         car_paths[car_paths_i].y[i]);
     }
     return cost / n_points;
 }
 
-double PathPlanner::CarPotential(double x, double y,
-                                 double car_x, double car_y,
-                                 double car_vx, double car_vy) const
+double
+PathPlanner::CarPotential(double x, double y, double car_x, double car_y) const
 {
-    double dx = x - car_x;
-    double dy = y - car_y;
-    double r = sqrt(dx * dx + dy * dy);
+    double forward = x - car_x;
+    double lateral = y - car_y;
 
-    double car_rv = sqrt(car_vx * car_vx + car_vy * car_vy);
-    if (car_rv == 0)
-    {
-        if (r < CAR_WIDTH)
-        {
-            return 1;
-        }
-        else
-        {
-            return 0;
-        }
-    }
-
-    double forward = (dx * car_vx + dy * car_vy) / car_rv;
-    double lateral = (dy * car_vx - dx * car_vy) / car_rv;
-
-    double cost = 0;
+    double cost;
     if ((abs(lateral) < CAR_WIDTH)
         && (abs(forward) < CAR_LENGTH))
     {
-        cost += 1;
+        cost = 1;
     }
     else
     {
-        cost += 0;
+        cost = 0;
     }
 
     return cost;
@@ -642,36 +622,15 @@ double PathPlanner::SoftCarAvoidanceCostPerCar(const Path& path,
     {
         cost += n_points / (i + 1.0) *
             SoftCarPotential(path.x[i], path.y[i], car_paths[car_paths_i].x[i],
-                             car_paths[car_paths_i].y[i],
-                             car_paths[car_paths_i].vx[i],
-                             car_paths[car_paths_i].vy[i]);
+                             car_paths[car_paths_i].y[i]);
     }
     return cost / n_points;
 }
 
-double PathPlanner::SoftCarPotential(double x, double y,
-                                     double car_x, double car_y,
-                                     double car_vx, double car_vy) const
+double PathPlanner::SoftCarPotential(double x, double y, double car_x, double car_y) const
 {
-    double dx = x - car_x;
-    double dy = y - car_y;
-    double r = dx * dx + dy * dy;
-
-    double car_rv = sqrt(car_vx * car_vx + car_vy * car_vy);
-    if (car_rv == 0)
-    {
-        if (r < CAR_WIDTH)
-        {
-            return 1;
-        }
-        else
-        {
-            return 0;
-        }
-    }
-
-    double forward = (dx * car_vx + dy * car_vy) / car_rv;
-    double lateral = (dy * car_vx - dx * car_vy) / car_rv;
+    double forward = x - car_x;
+    double lateral = y - car_y;
 
     return 1 / ((pow(lateral / CAR_WIDTH, 2)
                  + pow(forward / FOLLOW_DISTANCE, 2)));
@@ -723,23 +682,23 @@ TEST_CASE("PathPlanner")
 {
     PathPlanner planner{MapData{}};
     SECTION("CarPotential") {
-        REQUIRE(planner.CarPotential(0, 0, 0, 0, 0, 0) == 1.0);
-        REQUIRE(planner.CarPotential(0, 0, 0, 0, 1, 1) == 1.0);
+        REQUIRE(planner.CarPotential(0, 0, 0, 0) == 1.0);
+        REQUIRE(planner.CarPotential(0, 0, 0, 0) == 1.0);
 
-        REQUIRE(planner.CarPotential(LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
-        REQUIRE(planner.CarPotential(-LANE_WIDTH, 0, 0, 0, 0, 1) == 0.0);
-
-        REQUIRE(
-            planner.CarPotential(LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
-        REQUIRE(
-            planner.CarPotential(-LANE_WIDTH / 2, 0, 0, 0, 0, 1) == 1.0);
-
-        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
-        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0, 0, 1) == 1.0);
+        REQUIRE(planner.CarPotential(LANE_WIDTH, 0, 0, 0) == 0.0);
+        REQUIRE(planner.CarPotential(-LANE_WIDTH, 0, 0, 0) == 0.0);
 
         REQUIRE(
-            planner.CarPotential(0, FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
+            planner.CarPotential(LANE_WIDTH / 2, 0, 0, 0) == 1.0);
         REQUIRE(
-            planner.CarPotential(0, -FOLLOW_DISTANCE, 0, 0, 0, 1) == 0.0);
+            planner.CarPotential(-LANE_WIDTH / 2, 0, 0, 0) == 1.0);
+
+        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0) == 1.0);
+        REQUIRE(planner.CarPotential(0, LANE_WIDTH, 0, 0) == 1.0);
+
+        REQUIRE(
+            planner.CarPotential(0, FOLLOW_DISTANCE, 0, 0) == 0.0);
+        REQUIRE(
+            planner.CarPotential(0, -FOLLOW_DISTANCE, 0, 0) == 0.0);
     }
 }
