@@ -29,8 +29,6 @@ public:
     std::tuple<size_t, double> InterpolationPoint(double s) const;
     std::tuple<double, double> InterpolateRoadTangent(double s) const;
     std::tuple<double, double> InterpolateRoadCoords(double s, double d) const;
-    std::tuple<double, double> InterpolateFrenetCoords(double x, double y, double bearing) const;
-
 };
 
 #endif //PATH_PLANNING_MAP_DATA_HPP

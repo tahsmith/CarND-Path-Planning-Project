@@ -262,10 +262,3 @@ void MapData::PrepareInterpolation()
         assert(abs(dy - dy1) < 1e-6);
     }
 }
-
-std::tuple<double, double>
-MapData::InterpolateFrenetCoords(double x, double y, double bearing) const
-{
-    auto sd = getFrenet(x, y, bearing, waypoints_x, waypoints_y);
-    return make_tuple(sd[0], sd[1]);
-}
