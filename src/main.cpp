@@ -104,7 +104,7 @@ int main()
                                 j[1]["s"],
                                 j[1]["d"],
                                 deg2rad(j[1]["yaw"]),
-                                j[1]["speed"]
+                                double(j[1]["speed"]) * 0.447
                             };
 
                             planner.UpdateLocalisation(state);
