@@ -81,6 +81,8 @@ public:
                              double ax_initial, double ax_final, double ay_initial,
                              double ay_final) const;
 
+    Path DebugTrajectory();
+
     MapData map_data;
     VehicleState vehicle_state;
     uint8_t planner_state;

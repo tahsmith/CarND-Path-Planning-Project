@@ -835,6 +835,22 @@ void PathPlanner::PrintDebugInfo(const PathPlanner::CostDebugInfo& debug_info)
     }
 }
 
+Path PathPlanner::DebugTrajectory()
+{
+    Path path;
+    double ds = speed_limit * control_dt;
+    long steps = lround(ceil(map_data.max_s / ds));
+    for (size_t i = 0; i < steps; ++i)
+    {
+        double x, y;
+        tie(x, y) = map_data.InterpolateRoadCoords(ds * i, 2.5 * LANE_WIDTH);
+        path.x.push_back(x);
+        path.y.push_back(y);
+    }
+
+    return path;
+}
+
 #include "catch2/catch.hpp"
 
 TEST_CASE("PathPlanner")
