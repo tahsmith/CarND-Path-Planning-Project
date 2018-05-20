@@ -63,7 +63,7 @@ namespace
     const double CAR_WIDTH = 3.5;
 
     const double hard_speed_limit = 22.35;  //  22.35m s^-1 ~= 50 miles / hr
-    const double speed_limit = hard_speed_limit * 0.95;
+    const double speed_limit = hard_speed_limit * 0.90;
     const double hard_acc_limit = 10.0;
     const double acc_limit = hard_acc_limit * 0.90;
     const double planning_dt = 0.6;
@@ -386,29 +386,31 @@ Path PathPlanner::GenerateTrajectoryFromCurrent(double lane_target,
     speed_initial = vehicle_state.speed;
 
     speed_initial = min(speed_initial, speed_limit);
-
-    double average_speed = 0.5 * (speed_initial + speed_target);
-
-    double s_final = s_initial + average_speed * planning_time;
     double d_final = (lane_target + 0.5) * LANE_WIDTH;
 
-    auto path = GenerateTrajectory(s_initial, s_final, d_initial, d_final);
+    auto path = GenerateTrajectory(
+        s_initial, d_initial, d_final, speed_initial, speed_target);
     return path;
 }
 
 Path
-PathPlanner::GenerateTrajectory(double s_initial, double s_final,
-                                double d_initial, double d_final) const
+PathPlanner::GenerateTrajectory(double s_initial, double d_initial,
+                                double d_final, double speed_current,
+                                double speed_target) const
 {
-    double ds = (s_final - s_initial) / planning_steps;
+    double acc = (speed_target - speed_current) / planning_time;
     double dd = (d_final - d_initial) / planning_steps;
 
     Path path;
-
+    double s = s_initial;
+    double speed = speed_current;
     for (size_t i = 0; i < planning_steps; ++i)
     {
-        path.x.push_back(s_initial + i * ds);
+        path.x.push_back(s);
         path.y.push_back(d_initial + i * dd);
+
+        speed += acc * planning_dt;
+        s += speed * planning_dt;
     }
     return path;
 }
@@ -655,8 +657,7 @@ void PathPlanner::UpdateCarPaths()
                                 + pow(sensor_fusion_data.vy[car_id], 2));
         double d_car = sensor_fusion_data.d[car_id];
         double s_car = sensor_fusion_data.s[car_id];
-        auto car_path = GenerateTrajectory(s_car, s_car + car_speed * t,
-                                           d_car, d_car);
+        auto car_path = GenerateTrajectory(s_car, d_car, d_car, car_speed, car_speed);
         car_paths.push_back(move(car_path));
     }
     this->car_paths = move(car_paths);

@@ -69,8 +69,9 @@ public:
     SoftCarPotential(double x, double y, double car_x, double car_y) const;
     double SoftCarAvoidanceCostPerCar(const Path& path, size_t i) const;
     double SoftCarAvoidanceCost(const Path& path) const;
-    Path GenerateTrajectory(double s_initial, double s_final,
-                                double d_initial, double d_final) const;
+    Path GenerateTrajectory(double s_initial, double d_initial,
+                                double d_final, double speed_current,
+                                double speed_target) const;
 
     MapData map_data;
     VehicleState vehicle_state;
