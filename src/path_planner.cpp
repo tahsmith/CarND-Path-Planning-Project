@@ -66,12 +66,12 @@ namespace
     const double speed_limit = hard_speed_limit * 0.95;
     const double hard_acc_limit = 10.0;
     const double acc_limit = hard_acc_limit * 0.90;
-    const double planning_dt = 0.4;
-    const size_t planning_steps = 4;
+    const double planning_dt = 0.6;
+    const size_t planning_steps = 3;
     const double planning_time = planning_steps * planning_dt;
     const double control_dt = 0.02;
-    const size_t control_steps = 50;
-    const size_t final_path_overlap = 3;
+    const size_t control_steps = lround(planning_dt * planning_steps / control_dt);
+    const size_t final_path_overlap = 7;
 }
 
 void print_path(const Path& path)
@@ -237,7 +237,7 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
         waypoints.x.push_back(previous_path.x[i]);
         waypoints.y.push_back(previous_path.y[i]);
     }
-    for (size_t i = 1; i < plan.path.x.size(); ++i)
+    for (size_t i = 0; i < plan.path.x.size(); ++i)
     {
         waypoints.x.push_back(plan.path.x[i]);
         waypoints.y.push_back(plan.path.y[i]);
@@ -251,7 +251,7 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
         t.push_back(i * control_dt);
     }
 
-    for (long i = 1; i < plan.path.x.size(); ++i)
+    for (long i = 0; i < plan.path.x.size(); ++i)
     {
         t.push_back(overlap * control_dt + i * planning_dt);
     }
@@ -381,17 +381,15 @@ Path PathPlanner::GenerateTrajectoryFromCurrent(double lane_target,
         x_initial = previous_path.x[i[2]];
         y_initial = previous_path.y[i[2]];
 
-        vx_initial = (previous_path.x[i[1]] - previous_path.x[i[0]]) / control_dt;
-        double vx2_initial =
-            (previous_path.x[i[2]] - previous_path.x[i[1]]) / control_dt;
-        ax_initial = (vx2_initial - vx_initial) / control_dt;
-        vx_initial = (vx_initial + vx2_initial) / 2.0;
+        double vx1 = (previous_path.x[i[1]] - previous_path.x[i[0]]) / control_dt;
+        double vx2 = (previous_path.x[i[2]] - previous_path.x[i[1]]) / control_dt;
+        ax_initial = (vx2 - vx1) / control_dt;
+        vx_initial = vx2;
 
-        vy_initial = (previous_path.y[i[1]] - previous_path.y[i[0]]) / control_dt;
-        double vy2_initial =
-            (previous_path.y[i[2]] - previous_path.y[i[1]]) / control_dt;
-        ay_initial = (vy2_initial - vy_initial) / control_dt;
-        vy_initial = (vy_initial + vy2_initial) / 2.0;
+        double vy1 = (previous_path.y[i[1]] - previous_path.y[i[0]]) / control_dt;
+        double vy2 = (previous_path.y[i[2]] - previous_path.y[i[1]]) / control_dt;
+        ay_initial = (vy2 - vy1) / control_dt;
+        vy_initial = vy2;
     }
     else
     {
