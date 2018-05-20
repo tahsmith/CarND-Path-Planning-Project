@@ -58,7 +58,7 @@ namespace
     };
 
     const double LANE_WIDTH = 4.0;
-    const double FOLLOW_DISTANCE = 50.0;
+    const double FOLLOW_DISTANCE = 35.0;
     const double CAR_LENGTH = 7.0;
     const double CAR_WIDTH = 3.5;
 
@@ -66,12 +66,12 @@ namespace
     const double speed_limit = hard_speed_limit * 0.95;
     const double hard_acc_limit = 10.0;
     const double acc_limit = hard_acc_limit * 0.90;
-    const double planning_dt = 0.8;
-    const size_t planning_steps = 3;
+    const double planning_dt = 0.6;
+    const size_t planning_steps = 5;
     const double planning_time = planning_steps * planning_dt;
     const double control_dt = 0.02;
     const size_t control_steps = lround(planning_time / control_dt);
-    const size_t final_path_overlap = 10;
+    const size_t final_path_overlap = 20;
 }
 
 void print_path(const Path& path)
@@ -232,6 +232,7 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
 {
     Path waypoints;
     size_t overlap = min(final_path_overlap, previous_path.x.size());
+    size_t plan_skip = lround(overlap * control_dt / planning_dt) + 1;
 
     if (overlap == 0)
     {
@@ -246,7 +247,7 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
             waypoints.y.push_back(previous_path.y[i]);
         }
     }
-    for (size_t i = 1; i < plan.path.x.size(); ++i)
+    for (size_t i = plan_skip; i < plan.path.x.size(); ++i)
     {
         double x, y;
         tie(x, y) = map_data.InterpolateRoadCoords(plan.path.x[i],
@@ -264,7 +265,7 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
         t.push_back(i * control_dt);
     }
 
-    for (long i = 1; i < plan.path.x.size(); ++i)
+    for (long i = plan_skip; i < plan.path.x.size(); ++i)
     {
         t.push_back(i * planning_dt);
     }
@@ -500,11 +501,8 @@ double PathPlanner::CostForTrajectory(const Plan& plan,
         , {"speed limit", 1e6, [=](const Plan& plan) {
             return speed_limit_cost(plan, hard_speed_limit);
         }}
-        , {"speed opportunity cost", 1.5, [=](const Plan& plan) {
+        , {"speed cost", 4.0, [=](const Plan& plan) {
             return fmax(0, 1 - SafeSpeedForLane(plan.lane_target) / speed_limit);
-        }}
-        , {"speed cost", 1.5, [=](const Plan& plan) {
-            return fmax(0, 1 - plan.speed_target / speed_limit);
         }}
         , {"keep right", 1.01, [=](const Plan& plan) {
             return keep_right(plan.lane_current, plan.lane_target);
@@ -656,11 +654,9 @@ void PathPlanner::UpdateCarPaths()
         double car_speed = sqrt(pow(sensor_fusion_data.vx[car_id], 2)
                                 + pow(sensor_fusion_data.vy[car_id], 2));
         double d_car = sensor_fusion_data.d[car_id];
-
-        auto car_path = GenerateTrajectory(sensor_fusion_data.s[car_id],
-                                           sensor_fusion_data.s[car_id] +
-                                           car_speed * t,
-                                           sensor_fusion_data.d[car_id], d_car);
+        double s_car = sensor_fusion_data.s[car_id];
+        auto car_path = GenerateTrajectory(s_car, s_car + car_speed * t,
+                                           d_car, d_car);
         car_paths.push_back(move(car_path));
     }
     this->car_paths = move(car_paths);
