@@ -4,7 +4,7 @@
 
 //#define NDEBUG
 //#define DEBUG_STATE
-//#define DEBUG_COST
+#define DEBUG_COST
 //#define DEBUG_TRAJ
 
 #include <utility>
@@ -39,8 +39,7 @@ namespace
     const size_t n_states = 6;
     const char* states[n_states] = {
         "START",
-        "SPEED_UP",
-        "SLOW_DOWN",
+        "CAUTION",
         "CRUISE",
         "CHANGE_LEFT",
         "CHANGE_RIGHT"
@@ -48,13 +47,12 @@ namespace
 
 
     const int transitions[n_states][n_states]{
-/* from \ to    *  START SPEED_UP SLOW_DOW CRUISE CHANGE_LEFT CHANGE_RIGHT */
-/* START        */ {0,   1,       0,       0,     0,          0},
-/* SPEED_UP     */ {0,   0,       0,       1,     0,          0},
-/* SLOW_DOWN    */ {0,   0,       0,       1,     0,          0},
-/* CRUISE       */ {0,   1,       1,       1,     1,          1},
-/* CHANGE_LEFT  */ {0,   0,       0,       1,     1,          0},
-/* CHANGE_RIGHT */ {0,   0,       0,       1,     0,          1}
+/* from \ to    *  START CAUTION  CRUISE CHANGE_LEFT CHANGE_RIGHT */
+/* START        */ {0,   1,       0,     0,          0},
+/* CAUTION      */ {0,   1,       1,     0,          0},
+/* CRUISE       */ {0,   1,       1,     1,          1},
+/* CHANGE_LEFT  */ {0,   0,       1,     1,          0},
+/* CHANGE_RIGHT */ {0,   0,       1,     0,          1}
     };
 
     const double LANE_WIDTH = 4.0;
@@ -64,6 +62,7 @@ namespace
 
     const double hard_speed_limit = 22.35;  //  22.35m s^-1 ~= 50 miles / hr
     const double speed_limit = hard_speed_limit * 0.90;
+    const double caution_margin = 0.75;
     const double hard_acc_limit = 10.0;
     const double acc_limit = hard_acc_limit * 0.90;
     const double planning_dt = 0.6;
@@ -234,10 +233,15 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
     size_t overlap = min(final_path_overlap, previous_path.x.size());
     size_t plan_skip = lround(overlap * control_dt / planning_dt) + 1;
 
+    vector<double> t;
+    double t_back = 0;
+
     if (overlap == 0)
     {
         waypoints.x.push_back(vehicle_state.x);
         waypoints.y.push_back(vehicle_state.y);
+        t.push_back(t_back);
+        t_back += control_dt;
     }
     else
     {
@@ -245,30 +249,42 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
         {
             waypoints.x.push_back(previous_path.x[i]);
             waypoints.y.push_back(previous_path.y[i]);
+            t.push_back(t_back);
+            t_back += control_dt;
         }
     }
-    for (size_t i = plan_skip; i < plan.path.x.size(); ++i)
+
     {
-        double x, y;
-        tie(x, y) = map_data.InterpolateRoadCoords(plan.path.x[i],
-                                                   plan.path.y[i]);
-        waypoints.x.push_back(x);
-        waypoints.y.push_back(y);
+        double vx, vy;
+        auto n = waypoints.x.size();
+        if (n < 2) {
+            vx = cos(vehicle_state.yaw);
+            vy = sin(vehicle_state.yaw);
+        }
+        else
+        {
+            vx = waypoints.x[n - 2] - waypoints.x[n - 1];
+            vy = waypoints.y[n - 2] - waypoints.y[n - 1];
+        }
+
+//        double x0 = waypoints.x[n - 1];
+//        double y0 = waypoints.y[n - 1];
+        for (size_t i = plan_skip; i < plan.path.x.size(); ++i)
+        {
+            double x, y;
+            tie(x, y) = map_data.InterpolateRoadCoords(plan.path.x[i],
+                                                       plan.path.y[i]);
+//            double dot = (x - x0) * vx + (y - y0) * vy;
+            double dot = 1;
+            if (dot > 0)
+            {
+                waypoints.x.push_back(x);
+                waypoints.y.push_back(y);
+                t.push_back(i * planning_dt);
+            }
+        }
     }
 
-    
-    vector<double> t;
-    t.reserve(waypoints.x.size());
-
-    for (long i = 0; i < max(1UL, overlap); ++i)
-    {
-        t.push_back(i * control_dt);
-    }
-
-    for (long i = plan_skip; i < plan.path.x.size(); ++i)
-    {
-        t.push_back(i * planning_dt);
-    }
     assert(t.size() == waypoints.x.size());
 
     tk::spline x;
@@ -279,13 +295,7 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
 
     Path final_traj;
 
-    for (size_t i = 0; i < overlap; ++i)
-    {
-        final_traj.x.push_back(previous_path.x[i]);
-        final_traj.y.push_back(previous_path.y[i]);
-    }
-
-    for (size_t i = overlap; i < control_steps; ++i)
+    for (size_t i = 0; i < control_steps; ++i)
     {
         final_traj.x.push_back(x(control_dt * i));
         final_traj.y.push_back(y(control_dt * i));
@@ -314,10 +324,10 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
     auto jx = diff(ax, planning_dt);
     auto jy = diff(ay, planning_dt);
 
-    assert(all_of_list(vx, less_than(hard_speed_limit)));
-    assert(all_of_list(vy, less_than(hard_speed_limit)));
-    assert(all_of_list(ax, less_than(acc_limit)));
-    assert(all_of_list(ay, less_than(acc_limit)));
+//    assert(all_of_list(vx, less_than(hard_speed_limit)));
+//    assert(all_of_list(vy, less_than(hard_speed_limit)));
+//    assert(all_of_list(ax, less_than(acc_limit)));
+//    assert(all_of_list(ay, less_than(acc_limit)));
     #endif
     
     return final_traj;
@@ -330,26 +340,19 @@ Plan PathPlanner::GeneratePlanForState(uint8_t state) const
     double speed_final;
     if (state == 1)
     {
-        assert(strcmp(states[state], "SPEED_UP") == 0);
+        assert(strcmp(states[state], "CAUTION") == 0);
         lane_current = lane_actual;
         lane_target = lane_actual;
-        speed_final = current_plan.speed_target + acc_limit * planning_time;
+        speed_final = caution_margin * SafeSpeedForLane(current_plan.lane_target);
     }
     else if (state == 2)
-    {
-        assert(strcmp(states[state], "SLOW_DOWN") == 0);
-        lane_current = lane_actual;
-        lane_target = lane_actual;
-        speed_final = current_plan.speed_target - acc_limit * planning_time;
-    }
-    else if (state == 3)
     {
         assert(strcmp(states[state], "CRUISE") == 0);
         lane_current = lane_actual;
         lane_target = lane_actual;
         speed_final = SafeSpeedForLane(current_plan.lane_target);
     }
-    else if (state == 4)
+    else if (state == 3)
     {
         assert(strcmp(states[state], "CHANGE_LEFT") == 0);
         lane_current = lane_actual;
@@ -504,6 +507,9 @@ double PathPlanner::CostForTrajectory(const Plan& plan,
             return speed_limit_cost(plan, hard_speed_limit);
         }}
         , {"speed cost", 4.0, [=](const Plan& plan) {
+            return fmax(0, 1 - plan.speed_target / speed_limit);
+        }}
+        , {"speed opportunity cost", 4.0, [=](const Plan& plan) {
             return fmax(0, 1 - SafeSpeedForLane(plan.lane_target) / speed_limit);
         }}
         , {"keep right", 1.01, [=](const Plan& plan) {
@@ -514,9 +520,6 @@ double PathPlanner::CostForTrajectory(const Plan& plan,
         }}
         , {"lane change", 1.0, [=](const Plan& plan) {
             return abs(2 * lane_actual - plan.lane_current - plan.lane_target);
-        }}
-        , {"speed change", 1.0, [=](const Plan& plan) {
-            return fabs(plan.speed_target - vehicle_state.speed) / (acc_limit * planning_time);
         }}
     };
 
