@@ -66,12 +66,26 @@ namespace
     const double speed_limit = hard_speed_limit * 0.95;
     const double hard_acc_limit = 10.0;
     const double acc_limit = hard_acc_limit * 0.90;
-    const double planning_dt = 0.6;
+    const double planning_dt = 0.4;
     const size_t planning_steps = 4;
     const double planning_time = planning_steps * planning_dt;
     const double control_dt = 0.02;
     const size_t control_steps = 50;
-    const size_t final_path_overlap = 5;
+    const size_t final_path_overlap = 3;
+}
+
+void print_path(const Path& path)
+{
+    for (size_t i = 0; i < path.x.size(); ++i)
+    {
+        printf("[%8.1f, %8.1f] ", path.x[i], path.y[i]);
+    }
+    printf("\n");
+}
+
+Path diff(const Path& path)
+{
+    return {diff(path.x, 1), diff(path.y, 1)};
 }
 
 vector<uint8_t> SuccessorStates(size_t state)
@@ -215,7 +229,7 @@ Path PathPlanner::PlanPath()
 Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
 {
     Path waypoints;
-    
+
     size_t overlap = min(final_path_overlap, previous_path.x.size());
     
     for (size_t i = 0; i < overlap; ++i)
@@ -223,7 +237,7 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
         waypoints.x.push_back(previous_path.x[i]);
         waypoints.y.push_back(previous_path.y[i]);
     }
-    for (size_t i = 0; i < plan.path.x.size(); ++i)
+    for (size_t i = 1; i < plan.path.x.size(); ++i)
     {
         waypoints.x.push_back(plan.path.x[i]);
         waypoints.y.push_back(plan.path.y[i]);
@@ -237,7 +251,7 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
         t.push_back(i * control_dt);
     }
 
-    for (long i = 0; i < plan.path.x.size(); ++i)
+    for (long i = 1; i < plan.path.x.size(); ++i)
     {
         t.push_back(overlap * control_dt + i * planning_dt);
     }
@@ -265,7 +279,19 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
     assert(final_traj.x.size() == final_traj.y.size());
     assert(final_traj.x.size() == control_steps);
 
+
     #ifdef DEBUG_TRAJ
+    printf("S-D Waypoints\n");
+    print_path(plan.path);
+    print_path(diff(plan.path));
+
+    printf("X-Y Waypoints\n");
+    print_path(waypoints);
+    print_path(diff(waypoints));
+
+    printf("X-Y Final\n");
+    print_path(final_traj);
+
     // Sanity checks
     auto vx = diff(final_traj.x, planning_dt);
     auto vy = diff(final_traj.y, planning_dt);
@@ -406,6 +432,29 @@ Path PathPlanner::GenerateTrajectoryFromCurrent(double lane_target,
     return path;
 }
 
+tuple<double, double> acceleration_at_point(const MapData& map_data, double s, double d, double v, double dt)
+{
+    double s0 = s - v * dt;
+    double s1 = s + v * dt;
+
+    double x0,x,x1,y0,y,y1;
+    tie(x0, y0) = map_data.InterpolateRoadCoords(s0, d);
+    tie(x, y) = map_data.InterpolateRoadCoords(s, d);
+    tie(x1, y1) = map_data.InterpolateRoadCoords(s1, d);
+
+    double vx0 = (x - x0) / dt;
+    double vx1 = (x1 - x) / dt;
+
+    double vy0 = (y - y0) / dt;
+    double vy1 = (y1 - y) / dt;
+
+    double ax = (vx1 - vx0) / dt;
+    double ay = (vy1 - vy0) / dt;
+
+
+    return make_tuple(ax, ay);
+}
+
 Path
 PathPlanner::GenerateTrajectory(double s_final, double d_final,
                                 double speed_final, double x_initial,
@@ -425,13 +474,16 @@ PathPlanner::GenerateTrajectory(double s_final, double d_final,
 
     double t_final = planning_steps * planning_dt;
 
+    double ax_final, ay_final;
+    tie(ax_final, ay_final) = acceleration_at_point(map_data, s_final, d_final, speed_limit, control_dt);
+
     return InterpolatePath(t_final,
                            x_initial, x_final,
                            y_initial, y_final,
                            vx_initial, vx_final,
                            vy_initial, vy_final,
-                           ax_initial, 0,
-                           ay_initial, 0);
+                           ax_initial, ax_final,
+                           ay_initial, ay_final);
 
 }
 
