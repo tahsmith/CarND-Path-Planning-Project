@@ -141,37 +141,6 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
-tuple<size_t, double> MapData::InterpolationPoint(double s) const
-{
-    s = fmod(s, max_s);
-    size_t i = 1;
-    for (; i < waypoints_s.size(); ++i)
-    {
-        if (waypoints_s[i] > s) {
-            break;
-        }
-    }
-
-    double s0 = waypoints_s[i - 1];
-
-    return tuple<double, double> {
-        i - 1,
-        s - s0
-    };
-}
-
-tuple<double, double> MapData::InterpolateRoadTangent(double s) const
-{
-    size_t i;
-    double l;
-    tie(i, l) = InterpolationPoint(s);
-
-    return tuple<double, double> {
-        -dy_curves[i].Evaluate(l),
-        dx_curves[i].Evaluate(l)
-    };
-}
-
 tuple<double, double> MapData::InterpolateRoadCoords(double s, double d) const
 {
     auto xy = getXY(s, d, waypoints_s, waypoints_x, waypoints_y);
@@ -216,49 +185,4 @@ vector<Polynomial> GeneratePolys(vector<double> x, vector<double> t, double t_la
     }
 
     return poly_list;
-}
-
-void MapData::PrepareInterpolation()
-{
-    x_curves = GeneratePolys(waypoints_x, waypoints_s, max_s);
-    y_curves = GeneratePolys(waypoints_y, waypoints_s, max_s);
-    dx_curves = GeneratePolys(waypoints_dx, waypoints_s, max_s);
-    dy_curves = GeneratePolys(waypoints_dy, waypoints_s, max_s);
-
-    // Do some sanity checks on the the results.
-    for (size_t i = 1; i < waypoints_s.size(); ++i) {
-        double x0 = waypoints_x[i - 1];
-        double x;
-        double x1 = waypoints_x[i];
-        double y0 = waypoints_y[i - 1];
-        double y;
-        double y1 = waypoints_y[i];
-        double dx0 = waypoints_dx[i - 1];
-        double dx;
-        double dx1 = waypoints_dx[i];
-        double dy0 = waypoints_dy[i - 1];
-        double dy;
-        double dy1 = waypoints_dy[i];
-        double dt = waypoints_s[i] -  waypoints_s[i - 1];
-
-        x = x_curves[i - 1].Evaluate(dt);
-        y = y_curves[i - 1].Evaluate(dt);
-        dx = dx_curves[i - 1].Evaluate(dt);
-        dy = dy_curves[i - 1].Evaluate(dt);
-
-        assert(abs(x - x1) < 1e-6);
-        assert(abs(y - y1) < 1e-6);
-        assert(abs(dx - dx1) < 1e-6);
-        assert(abs(dy - dy1) < 1e-6);
-
-        x = x_curves[i].Evaluate(0);
-        y = y_curves[i].Evaluate(0);
-        dx = dx_curves[i].Evaluate(0);
-        dy = dy_curves[i].Evaluate(0);
-
-        assert(abs(x - x1) < 1e-6);
-        assert(abs(y - y1) < 1e-6);
-        assert(abs(dx - dx1) < 1e-6);
-        assert(abs(dy - dy1) < 1e-6);
-    }
 }

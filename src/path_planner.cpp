@@ -2,9 +2,9 @@
 // Created by Timothy Smith on 2/4/18.
 //
 
-//#define NDEBUG
+#define NDEBUG
 //#define DEBUG_STATE
-#define DEBUG_COST
+//#define DEBUG_COST
 //#define DEBUG_TRAJ
 
 #include <utility>
@@ -105,7 +105,6 @@ PathPlanner::PathPlanner(MapData mapData) :
     current_plan{{}, 1, 1, 0},
     planner_state{0}
 {
-    this->map_data.PrepareInterpolation();
 }
 
 long d_to_lane(double d)
@@ -231,17 +230,18 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
 {
     Path waypoints;
     size_t overlap = min(final_path_overlap, previous_path.x.size());
+
+    // Used to ensure all of the planning waypoints are ahead of the overlap
+    // points from the previous path
     size_t plan_skip = lround(overlap * control_dt / planning_dt) + 1;
 
     vector<double> t;
-    double t_back = 0;
 
     if (overlap == 0)
     {
         waypoints.x.push_back(vehicle_state.x);
         waypoints.y.push_back(vehicle_state.y);
-        t.push_back(t_back);
-        t_back += control_dt;
+        t.push_back(0.0);
     }
     else
     {
@@ -249,40 +249,18 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
         {
             waypoints.x.push_back(previous_path.x[i]);
             waypoints.y.push_back(previous_path.y[i]);
-            t.push_back(t_back);
-            t_back += control_dt;
+            t.push_back(i * control_dt);
         }
     }
 
+    for (size_t i = plan_skip; i < plan.path.x.size(); ++i)
     {
-        double vx, vy;
-        auto n = waypoints.x.size();
-        if (n < 2) {
-            vx = cos(vehicle_state.yaw);
-            vy = sin(vehicle_state.yaw);
-        }
-        else
-        {
-            vx = waypoints.x[n - 2] - waypoints.x[n - 1];
-            vy = waypoints.y[n - 2] - waypoints.y[n - 1];
-        }
-
-//        double x0 = waypoints.x[n - 1];
-//        double y0 = waypoints.y[n - 1];
-        for (size_t i = plan_skip; i < plan.path.x.size(); ++i)
-        {
-            double x, y;
-            tie(x, y) = map_data.InterpolateRoadCoords(plan.path.x[i],
-                                                       plan.path.y[i]);
-//            double dot = (x - x0) * vx + (y - y0) * vy;
-            double dot = 1;
-            if (dot > 0)
-            {
-                waypoints.x.push_back(x);
-                waypoints.y.push_back(y);
-                t.push_back(i * planning_dt);
-            }
-        }
+        double x, y;
+        tie(x, y) = map_data.InterpolateRoadCoords(plan.path.x[i],
+                                                   plan.path.y[i]);
+        waypoints.x.push_back(x);
+        waypoints.y.push_back(y);
+        t.push_back(i * planning_dt);
     }
 
     assert(t.size() == waypoints.x.size());
@@ -324,10 +302,10 @@ Path PathPlanner::FinalTrajectory(const Path& previous_path, const Plan& plan)
     auto jx = diff(ax, planning_dt);
     auto jy = diff(ay, planning_dt);
 
-//    assert(all_of_list(vx, less_than(hard_speed_limit)));
-//    assert(all_of_list(vy, less_than(hard_speed_limit)));
-//    assert(all_of_list(ax, less_than(acc_limit)));
-//    assert(all_of_list(ay, less_than(acc_limit)));
+    assert(all_of_list(vx, less_than(hard_speed_limit)));
+    assert(all_of_list(vy, less_than(hard_speed_limit)));
+    assert(all_of_list(ax, less_than(hard_acc_limit)));
+    assert(all_of_list(ay, less_than(hard_acc_limit)));
     #endif
     
     return final_traj;
@@ -494,8 +472,6 @@ public:
 double PathPlanner::CostForTrajectory(const Plan& plan,
                                       CostDebugInfo& debug_info) const
 {
-    // If the speed difference is speed_margin the cost is 1.
-
     static const CostComponent components[]  {
         {"car collision",  1e9, [=](const Plan& plan) {
             return CarAvoidanceCost(plan.path);

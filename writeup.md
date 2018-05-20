@@ -6,15 +6,14 @@ The FSM that decides new trajectories has 6 states:
 
  * START: The initial state, at rest in lane 1. N.B. lanes have been labelled 
  from zero. This state cannot re reentered once left.
- * SPEED_UP: Stay in the same lane but set the speed target higher.
- * SLOW_DOWN: Stay in the same lane but slow down.
+ * CAUTION: Travel at a "caution" speed, 75% of the speed limit.
  * CRUISE: Stay in the same lane at a speed safe for the lane.
  * CHANGE_LEFT: Change one lane left at a speed safe for the lane.
  * CHANGE_RIGHT: Change one lane right at a speed safe for the lane.
  
-The speed up state allows for a graceful start up. The slow down state allows
-for caution in the case that there are no other good options available.
-The system typically spends most of the time in the cruise state.
+The "caution" state allows for gracefully failure in the case that there are no
+other good options available. The system typically spends most of the time in 
+the cruise state.
 
 ## Choosing the next state
 
@@ -30,32 +29,31 @@ Law limits have been given a scale of 1e6. Comfort limits have been given 1e3.
  * Valid lane: Ensures the cars do not change lanes off the track
  * Speed limit: Stay below the hard speed limit.
  * Speed cost: Stay close to the soft speed limit.
+ * Speed opportunity: Prefer lanes that the car could travel faster in.
  * Keep right: Stay on the right lane if possible. This weight is only slightly
  greater than the cost of changing lanes, so it will only happen if nothing else
  is going on.
  * Car avoidance: Make sure there is a safe gap between cars.
  * Lane change: Don't make unnecessary lane changes.
  
+ The cost function for a canditate plan is implemented in PathPlanner::CostForTrajectory.
+ 
 ## Trajectory Generation
  
 ### Own car
  
-To generate trajectories for the car under control. The first three point of 
-Last path are taken to calculate an initial velocity and acceleration so
-the new curve joins smoothly to the last one. Final states are chosen by
-transforming desired final state s,d coords to x,y coords. The road normal is
-used to find a final velocity. (See PathPlanner::GenerateTrajectoryFromCurrent.)
-A jerk minimal polynomial is used at the interpolation curve between the start
-and end points.
+Trajectory generation is done in two parts. Firstly plans for each state are
+created along with s-d curves for the target lanes and speeds from the
+current state. The best of these wrt to the costs above is used to generate
+the final trajectory. (See: PathPlanner::PlanPath and 
+PathPlanner::GeneratePlanForState)
 
-The trajectory is then filtered to ensure it does not exceed the constraints at
-any point.
-
-Road points are also interpolated with polynomial, instead of the linear routine
-provided. This allowed from smoother curves in corners. (See MapData class.)
+The final trajectory is then made by taking some of the previous x-y curve 
+generated along with the s-d points converted into x-y points as waypoints for 
+interpolation. These interpolated points are then passed back to the simulator.
+(See: PathPlanner::FinalTrajectory)
 
 ### Other cars
 
 Other cars on the road are assumed to occupy the same lane and travel at the 
-same speed. Their trajectories are calculated use the same JMT. 
-(See PathPlanner::UpdateCarPaths).
+same speed. (See: PathPlanner::UpdateCarPaths)

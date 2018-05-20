@@ -48,14 +48,21 @@ class PathPlanner
 {
 public:
     PathPlanner(MapData mapData);
+
     void UpdateLocalisation(VehicleState state);
     void UpdateHistory(Path previousPath);
     void UpdateSensorFusion(SensorFusionData);
+
     Path PlanPath();
+
     Path FinalTrajectory(const Path& previous_path, const Plan& plan);
     Plan GeneratePlanForState(uint8_t state) const;
-    Path
-    GenerateTrajectoryFromCurrent(double lane_target, double speed_target) const;
+    Path GenerateTrajectoryFromCurrent(double lane_target, double speed_target) const;
+
+    Path GenerateTrajectory(double s_initial, double d_initial,
+                            double d_final, double speed_current,
+                            double speed_target) const;
+
     typedef std::map<std::string, std::tuple<double, double, double> > CostDebugInfo;
     double CostForTrajectory(const Plan& plan, CostDebugInfo& debug_info) const;
     void PrintDebugInfo(const CostDebugInfo&);
@@ -69,9 +76,6 @@ public:
     SoftCarPotential(double x, double y, double car_x, double car_y) const;
     double SoftCarAvoidanceCostPerCar(const Path& path, size_t i) const;
     double SoftCarAvoidanceCost(const Path& path) const;
-    Path GenerateTrajectory(double s_initial, double d_initial,
-                                double d_final, double speed_current,
-                                double speed_target) const;
 
     MapData map_data;
     VehicleState vehicle_state;
